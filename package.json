@@ -11,5 +11,8 @@
     "three": "^0.170.0",
     "yaml": "^2.9.1"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "playwright": "^1.65.0"
+  }
 }

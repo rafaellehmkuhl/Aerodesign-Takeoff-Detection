@@ -161,48 +161,92 @@ async function buildFromGLB(a, baseUrl) {
   return g;
 }
 
-function addMarkers(g, a, assetsUrl) {
+// Adesivos ArUco colados no extradorso. Cada adesivo é uma malha que acompanha a superfície da asa:
+// ao longo da direção "cima" do marcador (normalmente a corda) as posições são medidas em comprimento de
+// arco sobre o perfil, como um vinil que dobra sem esticar; na outra direção a asa é praticamente reta.
+async function addMarkers(g, a, assetsUrl) {
+  if (a.markers_enabled === false || !(a.markers ?? []).length) return [];
   g.updateMatrixWorld(true);
-  const targets = [];
-  g.traverse((o) => { if (o.isMesh && !o.userData.noExport) targets.push(o); });
-  const ray = new THREE.Raycaster();
-  const topAt = (x, y) => {
-    ray.set(new THREE.Vector3(x, y, 20), new THREE.Vector3(0, 0, -1));
-    const hit = ray.intersectObjects(targets, false)[0];
-    return hit ? hit.point.z : null;
-  };
-  const loader = new THREE.TextureLoader();
-  const out = [];
-  for (const mk of a.markers ?? []) {
-    const [x, y] = mk.position, h = mk.size_m / 2;
-    let z = mk.position[2];
-    if (z == null) {
-      // O adesivo é plano e a asa é curva: apoia no ponto mais alto da asa sob toda a área (com a borda branca).
-      const e = h * (1 + 2 * (a.marker_margin ?? 0.15)), zs = [];
-      for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) { const v = topAt(x + (i / 6) * e, y + (j / 6) * e); if (v != null) zs.push(v); }
-      z = (zs.length ? Math.max(...zs) : 0) + 0.003;
+  const all = [];
+  g.traverse((o) => { if (o.isMesh && !o.userData.noExport) all.push(o); });
+  const ray = new THREE.Raycaster(), down = new THREE.Vector3(0, 0, -1), org = new THREE.Vector3();
+  const loader = new THREE.ImageLoader();
+  const margin = a.marker_margin ?? 0.12, out = [];
+  for (const mk of a.markers) {
+    const h = mk.size_m / 2, F = mk.size_m * (1 + 2 * margin), half = F / 2;
+    const yaw = ((mk.yaw_deg ?? 0) * Math.PI) / 180, d = [Math.cos(yaw), Math.sin(yaw)], p = [-Math.sin(yaw), Math.cos(yaw)];
+    const [cx, cy] = mk.position;
+    // Só as malhas cuja caixa cobre a região do adesivo (o modelo inteiro tem dezenas de milhares de triângulos).
+    const reg = new THREE.Box3(new THREE.Vector3(cx - F, cy - F, -10), new THREE.Vector3(cx + F, cy + F, 10));
+    // O adesivo vai na pele externa: o filme da asa, quando o modelo tem um (senão, a superfície mais alta).
+    // `marker_surface` (regex de nome de objeto) escolhe outra superfície.
+    const near = all.filter((o) => new THREE.Box3().setFromObject(o).intersectsBox(reg));
+    const pick = a.marker_surface ? near.filter((o) => new RegExp(a.marker_surface, 'i').test(o.name)) : near.filter((o) => o.userData.film);
+    const targets = pick.length ? pick : near;
+    // Um raio exatamente sobre a costura entre duas malhas (ex.: a borda do aileron) passa pela fresta:
+    // nesse caso tenta posições vizinhas a até 2 mm.
+    const JIT = [[0, 0], [0, 0.0012], [0, -0.0012], [0.0012, 0], [-0.0012, 0], [0, 0.002], [0, -0.002]];
+    const topAt = (x, y) => {
+      for (const [jx, jy] of JIT) { org.set(x + jx, y + jy, 20); ray.set(org, down); const hit = ray.intersectObjects(targets, false)[0]; if (hit) return hit.point.z; }
+      return null;
+    };
+    // Perfil ao longo de "cima" para cada linha, parametrizado por comprimento de arco a partir do centro.
+    const NB = 9, NA = 28, step = 0.003, reach = half * 1.6, grid = [];
+    for (let jb = 0; jb < NB; jb++) {
+      const b = -half + (F * jb) / (NB - 1);            // coordenada "direita" do marcador
+      const bx = cx - p[0] * b, by = cy - p[1] * b;      // direita = -p
+      const xs = [], zs = [];
+      for (let u = -reach; u <= reach + 1e-9; u += step) { const z = topAt(bx + d[0] * u, by + d[1] * u); if (z != null) { xs.push(u); zs.push(z); } }
+      if (xs.length < 4) throw new Error(`adesivo ${mk.id}: a asa não está sob o ponto (${cx}, ${cy})`);
+      const arc = [0]; for (let k = 1; k < xs.length; k++) arc.push(arc[k - 1] + Math.hypot(xs[k] - xs[k - 1], zs[k] - zs[k - 1]));
+      const k0 = xs.reduce((m, u, k) => (Math.abs(u) < Math.abs(xs[m]) ? k : m), 0), a0 = arc[k0] - xs[k0];   // arco no centro (u = 0)
+      const at = (s) => {                                    // posição (u, z) e inclinação no arco s (relativo ao centro)
+        const t = s + a0; let k = 1; while (k < arc.length - 1 && arc[k] < t) k++;
+        const f = Math.min(Math.max((t - arc[k - 1]) / (arc[k] - arc[k - 1] || 1), 0), 1);
+        return { u: xs[k - 1] + f * (xs[k] - xs[k - 1]), z: zs[k - 1] + f * (zs[k] - zs[k - 1]), du: xs[k] - xs[k - 1], dz: zs[k] - zs[k - 1] };
+      };
+      grid.push({ b, bx, by, at });
     }
-    const tex = loader.load(`${assetsUrl}aruco/4x4_50_id${mk.id}.png`);
-    tex.magFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
-    const group = new THREE.Group();
-    group.position.set(x, y, z);
-    group.rotation.z = ((mk.yaw_deg ?? 0) * Math.PI) / 180;
-    const full = mk.size_m * (1 + 2 * (a.marker_margin ?? 0.15));
-    const white = new THREE.Mesh(new THREE.PlaneGeometry(full, full), new THREE.MeshStandardMaterial({ color: '#f7f7f7', roughness: 0.8 }));
-    const code = new THREE.Mesh(new THREE.PlaneGeometry(mk.size_m, mk.size_m), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 }));
-    code.position.z = 0.0008;
-    // A imagem do marcador tem "cima" = +x do corpo: gira o plano para alinhar +v da textura com +x.
-    white.rotation.z = code.rotation.z = -Math.PI / 2;
-    white.receiveShadow = code.receiveShadow = true;
-    white.userData.noExport = code.userData.noExport = true;
-    group.add(white, code); g.add(group);
-    // Cantos na ordem do OpenCV (sup-esq, sup-dir, inf-dir, inf-esq da imagem do marcador).
-    // Imagem: cima = +x corpo, direita = -y corpo.
-    group.updateMatrix();
-    const corners = [[h, h, 0], [h, -h, 0], [-h, -h, 0], [-h, h, 0]].map(([cx, cy, cz]) => {
-      const v = new THREE.Vector3(cx, cy, cz).applyMatrix4(group.matrix);
-      return [v.x, v.y, v.z];
-    });
+    const lift = a.marker_lift ?? 0.0006;                                     // espessura do vinil + folga contra z-fighting
+    let zFlat = -Infinity;
+    if (a.marker_flat) for (const row of grid) for (let k = 0; k <= 20; k++) zFlat = Math.max(zFlat, row.at(-half + (F * k) / 20).z);
+    const point = (row, s) => {
+      if (a.marker_flat) return new THREE.Vector3(row.bx + d[0] * s, row.by + d[1] * s, zFlat + 0.002);   // teste: adesivo plano
+      const q = row.at(s), n = Math.hypot(q.du, q.dz) || 1;  // normal no plano (direção cima, z)
+      const un = -q.dz / n, zn = q.du / n;
+      return new THREE.Vector3(row.bx + d[0] * (q.u + un * lift), row.by + d[1] * (q.u + un * lift), q.z + zn * lift);
+    };
+    const pos = [], uv = [], idx = [];
+    for (let jb = 0; jb < NB; jb++) for (let ia = 0; ia < NA; ia++) {
+      const s = -half + (F * ia) / (NA - 1), v = point(grid[jb], s);
+      pos.push(v.x, v.y, v.z); uv.push(jb / (NB - 1), ia / (NA - 1));
+    }
+    for (let jb = 0; jb < NB - 1; jb++) for (let ia = 0; ia < NA - 1; ia++) {
+      const i0 = jb * NA + ia, i1 = i0 + 1, j0 = i0 + NA, j1 = j0 + 1;
+      idx.push(i0, j0, i1, i1, j0, j1);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    if (geo.attributes.normal.getZ(0) < 0) { const ix = geo.index.array; for (let k = 0; k < ix.length; k += 3) [ix[k + 1], ix[k + 2]] = [ix[k + 2], ix[k + 1]]; geo.computeVertexNormals(); }
+    // Arte do adesivo: borda branca + código, numa textura só.
+    const img = await loader.loadAsync(`${assetsUrl}aruco/4x4_50_id${mk.id}.png`);
+    const R = 1024, cv = document.createElement('canvas'); cv.width = cv.height = R;
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#f4f4f1'; ctx.fillRect(0, 0, R, R);
+    ctx.imageSmoothingEnabled = false; const m = Math.round((R * margin * mk.size_m) / F); ctx.drawImage(img, m, m, R - 2 * m, R - 2 * m);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 16;
+    const sticker = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: a.marker_roughness ?? 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }));
+    sticker.name = `aruco_${mk.id}`; sticker.receiveShadow = true; sticker.userData.noExport = true; sticker.userData.marker = true;
+    g.add(sticker);
+    // Cantos na ordem do OpenCV (sup-esq, sup-dir, inf-dir, inf-esq da imagem): cima = +s, direita = +b.
+    const rowAt = (b) => {                                   // linha exata em b (os cantos não caem na grade)
+      const bx = cx - p[0] * b, by = cy - p[1] * b, xs = [], zs = [];
+      for (let u = -reach; u <= reach + 1e-9; u += step / 3) { const z = topAt(bx + d[0] * u, by + d[1] * u); if (z != null) { xs.push(u); zs.push(z); } }
+      const arc = [0]; for (let k = 1; k < xs.length; k++) arc.push(arc[k - 1] + Math.hypot(xs[k] - xs[k - 1], zs[k] - zs[k - 1]));
+      const k0 = xs.reduce((mm, u, k) => (Math.abs(u) < Math.abs(xs[mm]) ? k : mm), 0), a0 = arc[k0] - xs[k0];
+      return { bx, by, at: (s) => { const t = s + a0; let k = 1; while (k < arc.length - 1 && arc[k] < t) k++; const f = Math.min(Math.max((t - arc[k - 1]) / (arc[k] - arc[k - 1] || 1), 0), 1); return { u: xs[k - 1] + f * (xs[k] - xs[k - 1]), z: zs[k - 1] + f * (zs[k] - zs[k - 1]), du: xs[k] - xs[k - 1], dz: zs[k] - zs[k - 1] }; } };
+    };
+    const corners = [[h, -h], [h, h], [-h, h], [-h, -h]].map(([s, b]) => { const v = point(rowAt(b), s); return [v.x, v.y, v.z]; });
     out.push({ id: mk.id, size_m: mk.size_m, corners });
   }
   return out;
@@ -229,7 +273,7 @@ export function exportMesh(g) {
 export async function buildAircraft(cfg, baseUrl, assetsUrl) {
   const a = cfg.aircraft;
   const g = a.model === 'parametric' || !a.model ? buildParametric(a) : await buildFromGLB(a, baseUrl);
-  const markers = addMarkers(g, a, assetsUrl);
+  const markers = await addMarkers(g, a, assetsUrl);
   const mesh = exportMesh(g);
   return { group: g, markers, mesh };
 }

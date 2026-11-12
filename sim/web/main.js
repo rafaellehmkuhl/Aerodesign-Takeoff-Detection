@@ -90,6 +90,7 @@ function buildGui() {
   dyn.add(cfg.dynamics, 'static_thrust_n', 15, 80, 1).name('tração estática (N)').onChange(apply);
   dyn.add(cfg.dynamics, 'lateral_offset_m', -2.5, 2.5, 0.05).name('desvio lateral (m)').onChange(apply);
   dyn.add(cfg.dynamics, 'roll_sigma_deg', 0, 10, 0.5).name('rolamento σ (°)').onChange(apply);
+  dyn.add(cfg.aircraft, 'markers_enabled').name('adesivos ArUco').onChange(apply);
   dyn.add(cfg.aircraft, 'wingspan_m', 1.2, 3.5, 0.05).name('envergadura (m)').onChange(apply);
   dyn.add(cfg.obstacle, 'height_m', 0.3, 1.5, 0.01).name('altura do obstáculo').onChange(apply);
   dyn.add(cfg.obstacle, 'tape').name('faixa física').onChange(apply);
@@ -128,6 +129,8 @@ function buildGui() {
 
 buildGui();
 await rebuild();
+// Acesso pelo console/automação: window.ui.state.t, window.ui.state.playing, window.ui.controls.
+window.ui = { state, get controls() { return controls; }, get sim() { return sim; } };
 
 // ------------------------------------------------------------------ laço
 let last = performance.now(), rr = 0, fpsAvg = 0;

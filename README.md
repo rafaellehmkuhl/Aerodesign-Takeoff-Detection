@@ -32,7 +32,7 @@ cd Aerodesign-Takeoff-Detection
 npm install
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 python3 tools/fetch_assets.py          # ~55 MB de assets CC0 do Poly Haven (céu HDRI, asfalto, grama, folhagem)
-npm install playwright && npx playwright install chromium   # só se ainda não houver Playwright/Chromium
+# o render headless usa o Chromium do Playwright (npx playwright install chromium) ou, sem ele, o Chrome instalado
 
 ./run.py scenarios/rapido.yaml        # ~10 min em CPU; gera runs/rapido/final.mp4 e report.md
 ./run.py scenarios/padrao.yaml        # qualidade cheia (1080p @ 120 fps nas câmeras de rastreamento)
@@ -81,7 +81,12 @@ herdar de outro com `extends:`. Os principais grupos:
 - `environment` — sol, vento médio/direção/rajada.
 - `aircraft` — geometria paramétrica (envergadura, corda, fuselagem, trem, cores…) **ou** um modelo
   `.glb` (`model: /models/meu_aviao.glb`, com `model_scale`/`model_rotation_deg`; coloque o arquivo em
-  `models/`). `markers` define quantos ArUcos, de que tamanho e onde na asa (qualquer quantidade).
+  `models/`). `markers` define quantos ArUcos, de que tamanho e onde na asa (qualquer quantidade);
+  `markers_enabled: false` (ou a chave "adesivos ArUco" na interface) tira todos, para comparar com e sem.
+  Cada adesivo é uma malha colada na pele da asa que acompanha a curvatura do perfil, com o comprimento medido
+  ao longo da superfície (como um vinil, sem esticar); os cantos usados pelo algoritmo são os pontos reais
+  sobre a superfície curva. `marker_surface` (regex de nome de objeto) escolhe em qual malha colar; o padrão é
+  o filme da asa.
 - `dynamics` — massa, CLmáx, tração, atrito, velocidade de rotação, ângulo de subida, desvios laterais.
   `target_clearance_m` ajusta a massa automaticamente para obter uma folga real exata — é o jeito
   de fabricar casos-limite (+2 cm, −2 cm…).

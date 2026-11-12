@@ -68,12 +68,14 @@ aircraft:
   prop_diameter_m: 0.36
   prop_rpm: 7000
   colors: { wing: "#f4f1e8", wing_tip: "#d6202a", fuselage: "#d6202a", tail: "#f4f1e8", accent: "#1c2a4a" }
-  # Marcadores ArUco (DICT_4X4_50) colados no extradorso da asa.
-  # position: [x, y] no referencial do corpo (x para frente, y para a esquerda), em metros.
+  # Adesivos ArUco (DICT_4X4_50) colados no extradorso da asa, acompanhando a curvatura dela.
+  # position: [x, y] do centro no referencial do corpo (x para frente, y para a esquerda), em metros.
+  # O "cima" do código aponta para +x (bordo de ataque); yaw_deg gira o adesivo.
+  markers_enabled: true
   markers:
-    - { id: 0, size_m: 0.25, position: [-0.01, 0.95] }
-    - { id: 1, size_m: 0.25, position: [-0.01, -0.95] }
-  marker_margin: 0.12      # borda branca ao redor do marcador (fração do tamanho)
+    - { id: 0, size_m: 0.25, position: [-0.015, 0.95] }
+    - { id: 1, size_m: 0.25, position: [-0.015, -0.95] }
+  marker_margin: 0.10      # borda branca do adesivo em volta do código (fração do tamanho do código)
 
 dynamics:
   mass_kg: 20.0            # massa total (vazio + carga)

@@ -21,8 +21,11 @@ fs.writeFileSync(path.join(out, 'config.resolved.json'), JSON.stringify(cfg, nul
 
 const { server, port } = await startServer({ config: cfg });
 // Sem GPU (CI, contêiner) o WebGL roda em software (SwiftShader). Com GPU: SIM_GPU=1.
-const gl = process.env.SIM_GPU ? ['--ignore-gpu-blocklist', '--enable-gpu', '--use-angle=default'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
-const browser = await chromium.launch({ args: [...gl, '--enable-webgl'] });
+const gl = process.env.SIM_GPU ? ['--ignore-gpu-blocklist', '--enable-gpu', '--use-angle=' + (process.platform === 'darwin' ? 'metal' : 'default')] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
+// Navegador: o Chromium do Playwright, se instalado (npx playwright install chromium); senão o Chrome do sistema.
+let browser;
+try { browser = await chromium.launch({ args: [...gl, '--enable-webgl'] }); }
+catch (e) { browser = await chromium.launch({ channel: 'chrome', args: [...gl, '--enable-webgl'] }); }
 const page = await browser.newPage();
 page.on('console', (m) => { if (m.type() === 'error') console.error('[page]', m.text()); });
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
