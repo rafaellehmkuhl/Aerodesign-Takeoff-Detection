@@ -66,6 +66,7 @@ if (args.timeline) {
     // Depuração: um quadro por câmera (no instante relativo ao cruzamento dado em --stills).
     const t = gt.events.t_cross + Number(args.stills === true ? 0 : args.stills);
     for (const name of [...cfg.cameras.map((c) => c.name), 'chase', 'free']) {
+      if (typeof args.cameras === 'string' && !args.cameras.split(',').includes(name)) continue;
       const t0 = Date.now();
       const b64 = await page.evaluate(([n, tt]) => window.renderFrame(n, tt, 0, 0.93), [name, t]);
       fs.writeFileSync(path.join(out, `still_${name}.jpg`), Buffer.from(b64, 'base64'));

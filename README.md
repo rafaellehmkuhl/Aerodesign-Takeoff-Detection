@@ -31,13 +31,15 @@ Requisitos: Node ≥ 20, Python ≥ 3.10, ffmpeg e um Chromium que o Playwright 
 cd Aerodesign-Takeoff-Detection
 npm install
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 tools/fetch_assets.py          # ~55 MB de assets CC0 do Poly Haven (céu HDRI, asfalto, grama, folhagem)
 npm install playwright && npx playwright install chromium   # só se ainda não houver Playwright/Chromium
 
 ./run.py scenarios/rapido.yaml        # ~10 min em CPU; gera runs/rapido/final.mp4 e report.md
 ./run.py scenarios/padrao.yaml        # qualidade cheia (1080p @ 120 fps nas câmeras de rastreamento)
 ```
 
-Sem GPU o render roda em software (SwiftShader), a ~1 s por quadro 1080p. Numa máquina com GPU,
+Sem GPU o render roda em software (SwiftShader), a ~3–5 s por quadro 1080p no cenário realista
+(~1 s no cenário `basic`). Numa máquina com GPU,
 `SIM_GPU=1 ./run.py ...` usa a placa e fica ordens de grandeza mais rápido.
 
 Outros modos:
@@ -93,6 +95,36 @@ Cenários prontos em `scenarios/`: `padrao`, `rapido`, `limite_passa` (+2 cm), `
 `vento_forte`, `linecam_desalinhada`, `postes_altos`, `painel_contraste`. Só `rapido` (com as folgas da
 tabela abaixo) e `limite_falha` foram rodados de ponta a ponta até aqui.
 
+## Cenário realista e aeronave
+
+Com os assets baixados (`tools/fetch_assets.py`), `environment.quality: real` (padrão) monta a cena com:
+
+- **céu e luz reais**: HDRI `kloofendal_48d_partly_cloudy_puresky` como fundo e como iluminação baseada em
+  imagem; o sol direto (com sombras) é uma luz direcional alinhada ao sol do HDRI, na proporção de irradiância
+  medida no arquivo, e o disco solar é limitado no mapa de ambiente para não contar o sol duas vezes;
+- **solo escaneado**: asfalto e grama PBR (cor, normal, rugosidade) com variação em macro-escala para não
+  "azulejar", pintura gasta, manchas de borracha;
+- **vegetação que se mexe**: tufos de grama 3D nas laterais da pista e árvores com folhagem real, ambos
+  balançando com o vento configurado — fundo dinâmico, que é o que quebra subtração de fundo no mundo real;
+- **lente**: além de distorção, ruído e motion blur, aberração cromática lateral e vinheta.
+
+Sem os assets (ou com `quality: basic`) vale o cenário procedural leve.
+
+A aeronave padrão é `models/drone_advanced.glb`, exportada de `models/drone_advanced.blend` (classe Advanced:
+treliça de alumínio, asa entelada com filme transparente, nervuras, adesivos, planador alijável). Para usar
+outra aeronave:
+
+```bash
+pip install bpy                                             # num ambiente separado (~1 GB)
+python tools/blend_to_glb.py models/minha.blend models/minha.glb
+```
+
+e, no cenário, `aircraft.model: /models/minha.glb`, `model_origin_m` (posição do CG no modelo, com as rodas
+em z = 0) e as dimensões usadas pela física (`wingspan_m`, `chord_m`, `gear_height_m`, `main_gear_x_m`,
+`tail_arm_m`). Objetos chamados `Helice…` giram; o material `Film` vira filme transparente; objetos
+`Adesivo…` não entram na malha de colisão/silhueta. `scenarios/regular_parametrica.yaml` usa a aeronave
+paramétrica da classe Regular.
+
 ## Como a simulação funciona
 
 - **Decolagem** (`sim/src/physics.js`): modelo de 3 graus de liberdade (x, z, arfagem) com
@@ -102,8 +134,8 @@ tabela abaixo) e `limite_falha` foram rodados de ponta a ponta até aqui.
 - **Câmeras** (`sim/src/cameras.js`): pinhole + distorção radial (modelo do OpenCV); motion blur por
   acumulação de sub-quadros durante a exposição; ruído de sensor; a pose real vibra no tempo, e a
   calibração exportada para os algoritmos carrega os erros configurados.
-- **Render** (`sim/src/world.js`, `aircraft.js`): three.js com céu físico, sol com sombras, materiais
-  PBR e tone mapping ACES. A mesma cena roda no navegador (UI) e headless (vídeos).
+- **Render** (`sim/src/world_real.js`, `world.js`, `aircraft.js`): three.js com iluminação por HDRI, sol com
+  sombras, materiais PBR e tone mapping ACES. A mesma cena roda no navegador (UI) e headless (vídeos).
 - **Verdade**: a folga real é o menor `z − altura do obstáculo` entre todos os vértices da malha no
   instante em que cada um cruza o plano do obstáculo.
 
@@ -244,15 +276,16 @@ centenas de pixels), rápido, ao ar livre, sem profundidade, mas com **modelo 3D
 - **Regulamento**: o site da SAE Brasil não estava acessível deste ambiente. Pista de 50 m veio do
   briefing; **altura do obstáculo (0,70 m), largura entre postes (6 m) e largura da pista (8 m) são
   chutes configuráveis** — ajustar em `config/default.yaml`.
-- **Aeronave**: massa, área, CLmáx, tração e as velocidades resultantes (estol ≈ 10–11 m/s, cruzando o
-  obstáculo a ≈ 9–10 m/s de velocidade de solo com 3 m/s de vento de proa) são valores típicos de
-  memória para a classe Regular, não tirados de relatórios de equipes. Trocar pelos números reais.
+- **Aeronave**: a geometria é a do modelo fornecido, mas massa, CLmáx, tração, posição do CG e as
+  velocidades resultantes (estol ≈ 10–11 m/s, cruzando o obstáculo a ≈ 9–10 m/s de velocidade de solo com
+  3 m/s de vento de proa) são estimativas, não dados da equipe. Trocar pelos números reais.
 - **Não simulado ainda**: rolling shutter, dessincronismo entre câmeras (assume-se gatilho comum),
   variação de exposição/auto-ganho, chuva/poeira, pessoas e objetos se movendo no fundo, flexão da
   asa, e o **procedimento de calibração em si** (o erro de calibração é imposto, não resultado de
   um processo com pontos de controle).
-- **Realismo visual**: iluminação e sombras são fisicamente razoáveis, mas vegetação e cenário são
-  estilizados; o fundo real é mais difícil para segmentação por movimento do que este.
-- O carregamento de aeronave `.glb` está implementado, mas **não foi testado** com um modelo real.
+- **Realismo visual**: céu, luz, asfalto e grama vêm de material escaneado e a aeronave é o modelo real,
+  mas ainda é rasterização em tempo real, não path tracing: sem iluminação global, oclusão de ambiente
+  ou reflexos reais; árvores e tendas são procedurais; não há pessoas, veículos nem público no fundo.
+  A posição dos ArUcos sobre o filme da asa foi escolhida por mim, não pela equipe.
 - O algoritmo sem marcador é um baseline clássico; os métodos de ponta listados acima não foram
   integrados.

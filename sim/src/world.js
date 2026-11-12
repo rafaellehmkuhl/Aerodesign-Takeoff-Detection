@@ -28,6 +28,41 @@ function noiseTexture(size, base, variation, rng, { speckle = 0, repeat = 1, str
   return t;
 }
 
+// Postes, faixa física opcional e painel de contraste.
+export function buildObstacle(cfg) {
+  const env = cfg.environment, L = cfg.runway.length_m, Wd = cfg.runway.width_m;
+  const ob = cfg.obstacle, hw = ob.width_m / 2;
+  const h = ob.tape ? ob.height_m : (ob.post_height_m ?? ob.height_m);   // com faixa física os postes têm a altura dela
+  const orange = new THREE.MeshStandardMaterial({ color: '#f06a12', roughness: 0.6 });
+  const white = new THREE.MeshStandardMaterial({ color: '#f2f2f2', roughness: 0.6 });
+  const obstacle = new THREE.Group();
+  if (ob.posts) for (const s of [-1, 1]) {
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.03), orange); base.position.set(L, s * hw, 0.025);
+    const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.09, h, 14), orange);
+    cone.rotation.x = Math.PI / 2; cone.position.set(L, s * hw, h / 2 + 0.03);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.06, h * 0.22, 14), white);
+    band.rotation.x = Math.PI / 2; band.position.set(L, s * hw, h * 0.62);
+    for (const m of [base, cone, band]) { m.castShadow = true; m.receiveShadow = true; obstacle.add(m); }
+  }
+  if (ob.tape) {
+    const bow = ob.tape_bow_m_per_ms * env.wind.speed_ms * -Math.cos(deg(env.wind.direction_deg)) * -1;
+    const pts = [];
+    for (let i = 0; i <= 24; i++) { const s = i / 24, y = -hw + 2 * hw * s; pts.push(new THREE.Vector3(L + bow * 4 * s * (1 - s), y, h - 0.03 * 4 * s * (1 - s))); }
+    const geo = new THREE.BufferGeometry(); const pos = [], idx = [];
+    pts.forEach((p, i) => { pos.push(p.x, p.y, p.z + 0.02, p.x, p.y, p.z - 0.02); if (i) { const a = 2 * i; idx.push(a - 2, a - 1, a, a - 1, a + 1, a); } });
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+    const tape = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: '#ffe14a', emissive: '#554400', side: THREE.DoubleSide, roughness: 0.3 }));
+    tape.castShadow = true; obstacle.add(tape);
+  }
+  if (ob.backdrop) {
+    const line = (cfg.cameras ?? []).find((c) => c.role === 'line');
+    const side = line && line.position[1] > 0 ? -1 : 1;
+    const bd = new THREE.Mesh(new THREE.BoxGeometry(5, 0.04, 2.4), new THREE.MeshStandardMaterial({ color: ob.backdrop_color, roughness: 0.95 }));
+    bd.position.set(L, side * (Wd / 2 + 1.5), 1.2); bd.castShadow = bd.receiveShadow = true; obstacle.add(bd);
+  }
+  return obstacle;
+}
+
 export function buildWorld(cfg) {
   const scene = new THREE.Scene();
   const rng = makeRng(cfg.seed + 4242);
@@ -90,36 +125,7 @@ export function buildWorld(cfg) {
   stripe(L, 0, 0.12, Wd - 0.6, yellow);             // linha do obstáculo no asfalto
   for (let x = 10; x < L; x += 10) { stripe(x, Wd / 2 - 0.6, 0.08, 0.6); stripe(x, -Wd / 2 + 0.6, 0.08, 0.6); }
 
-  // --- Obstáculo ---
-  const ob = cfg.obstacle, hw = ob.width_m / 2;
-  const h = ob.tape ? ob.height_m : (ob.post_height_m ?? ob.height_m);   // com faixa física os postes têm a altura dela
-  const orange = new THREE.MeshStandardMaterial({ color: '#f06a12', roughness: 0.6 });
-  const white = new THREE.MeshStandardMaterial({ color: '#f2f2f2', roughness: 0.6 });
-  const obstacle = new THREE.Group();
-  if (ob.posts) for (const s of [-1, 1]) {
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.03), orange); base.position.set(L, s * hw, 0.025);
-    const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.09, h, 14), orange);
-    cone.rotation.x = Math.PI / 2; cone.position.set(L, s * hw, h / 2 + 0.03);
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.06, h * 0.22, 14), white);
-    band.rotation.x = Math.PI / 2; band.position.set(L, s * hw, h * 0.62);
-    for (const m of [base, cone, band]) { m.castShadow = true; m.receiveShadow = true; obstacle.add(m); }
-  }
-  if (ob.tape) {
-    const bow = ob.tape_bow_m_per_ms * env.wind.speed_ms * -Math.cos(deg(env.wind.direction_deg)) * -1;
-    const pts = [];
-    for (let i = 0; i <= 24; i++) { const s = i / 24, y = -hw + 2 * hw * s; pts.push(new THREE.Vector3(L + bow * 4 * s * (1 - s), y, h - 0.03 * 4 * s * (1 - s))); }
-    const geo = new THREE.BufferGeometry(); const pos = [], idx = [];
-    pts.forEach((p, i) => { pos.push(p.x, p.y, p.z + 0.02, p.x, p.y, p.z - 0.02); if (i) { const a = 2 * i; idx.push(a - 2, a - 1, a, a - 1, a + 1, a); } });
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
-    const tape = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: '#ffe14a', emissive: '#554400', side: THREE.DoubleSide, roughness: 0.3 }));
-    tape.castShadow = true; obstacle.add(tape);
-  }
-  if (ob.backdrop) {
-    const line = (cfg.cameras ?? []).find((c) => c.role === 'line');
-    const side = line && line.position[1] > 0 ? -1 : 1;
-    const bd = new THREE.Mesh(new THREE.BoxGeometry(5, 0.04, 2.4), new THREE.MeshStandardMaterial({ color: ob.backdrop_color, roughness: 0.95 }));
-    bd.position.set(L, side * (Wd / 2 + 1.5), 1.2); bd.castShadow = bd.receiveShadow = true; obstacle.add(bd);
-  }
+  const obstacle = buildObstacle(cfg);
   scene.add(obstacle);
 
   // --- Cenário de fundo ---

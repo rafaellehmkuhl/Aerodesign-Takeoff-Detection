@@ -24,9 +24,16 @@ obstacle:
   backdrop_color: "#2b6cff"
 
 environment:
-  sun_elevation_deg: 48
+  # quality: real  -> céu HDRI, solo escaneado, grama e árvores 3D (precisa de tools/fetch_assets.py)
+  #          basic -> cenário procedural leve (usado automaticamente se os assets não existirem)
+  quality: real
   sun_azimuth_deg: 215     # de onde vem o sol (0 = +x, 90 = +y)
-  turbidity: 4
+  sun_elevation_deg: 48    # só no modo basic; no modo real a elevação é a do HDRI (48 graus)
+  turbidity: 4             # só no modo basic
+  sun_intensity: 4.6       # modo real: irradiância do sol direto, na mesma escala do HDRI (medida no arquivo)
+  ibl_intensity: 1.0
+  grass_3d: true
+  grass_density_per_m2: 45
   wind:
     speed_ms: 3.0          # vento médio
     direction_deg: 180     # para onde o vento SOPRA: 180 = contra a decolagem (vento de proa)
@@ -35,44 +42,48 @@ environment:
 
 aircraft:
   # Geometria paramétrica (asa alta, trem triciclo), típica da classe Regular.
-  model: parametric        # ou caminho para um .glb (ver README)
+  # Modelo 3D: um .glb em models/ (exportado do Blender com tools/blend_to_glb.py) ou `parametric`
+  # (geometria gerada a partir das dimensões abaixo; ver scenarios/regular_parametrica.yaml).
+  model: /models/drone_advanced.glb
   model_scale: 1.0
-  model_rotation_deg: [0, 0, 0]
-  wingspan_m: 2.20
-  chord_m: 0.42
+  model_rotation_deg: [90, 0, 0]       # glTF é Y-para-cima; o corpo é x-frente, y-esquerda, z-cima
+  model_origin_m: [-0.55, 0.0, 0.28]   # posição do CG nas coordenadas do modelo (rodas no chão em z = 0)
+  # Dimensões usadas pela física (e pela geometria, no modo parametric):
+  wingspan_m: 3.30
+  chord_m: 0.53
   wing_z_m: 0.16           # altura da asa acima do CG
   fuselage_length_m: 0.75
   fuselage_width_m: 0.20
   fuselage_height_m: 0.22
-  tail_arm_m: 1.05         # CG até a empenagem
+  tail_arm_m: 1.40         # CG até a empenagem
   htail_span_m: 0.75
   htail_chord_m: 0.24
   vtail_height_m: 0.32
-  gear_height_m: 0.24      # CG até a base das rodas
-  main_gear_x_m: -0.06     # trem principal, atrás do CG
+  gear_height_m: 0.28      # CG até a base das rodas
+  main_gear_x_m: -0.078    # trem principal, atrás do CG
   nose_gear_x_m: 0.38
   gear_track_m: 0.46
   wheel_diameter_m: 0.075
   prop_diameter_m: 0.36
-  prop_rpm: 9000
+  prop_rpm: 7000
   colors: { wing: "#f4f1e8", wing_tip: "#d6202a", fuselage: "#d6202a", tail: "#f4f1e8", accent: "#1c2a4a" }
   # Marcadores ArUco (DICT_4X4_50) colados no extradorso da asa.
   # position: [x, y] no referencial do corpo (x para frente, y para a esquerda), em metros.
   markers:
-    - { id: 0, size_m: 0.25, position: [-0.075, 0.94] }
-    - { id: 1, size_m: 0.25, position: [-0.075, -0.94] }
+    - { id: 0, size_m: 0.25, position: [-0.01, 0.95] }
+    - { id: 1, size_m: 0.25, position: [-0.01, -0.95] }
   marker_margin: 0.12      # borda branca ao redor do marcador (fração do tamanho)
 
 dynamics:
-  mass_kg: 12.5            # massa total (vazio + carga)
+  mass_kg: 20.0            # massa total (vazio + carga)
   wing_area_m2: null       # null = envergadura * corda
   cl_max: 1.90
   cl_ground: 0.55          # CL na atitude de corrida
   cl_alpha_per_rad: 4.4
   cd0: 0.055
   induced_k: 0.075
-  static_thrust_n: 40.0
-  thrust_zero_speed_ms: 32.0
+  static_thrust_n: 75.0
+  thrust_zero_speed_ms: 30.0
   rolling_friction: 0.04
   rotate_speed_factor: 1.08   # Vr = fator * Vestol
   rotate_at_x_m: null         # se definido, força a rotação nesse ponto da pista
@@ -102,6 +113,8 @@ camera_defaults:
   roll_deg: 0
   distortion: { k1: -0.06, k2: 0.01 }       # lente real (modelo radial OpenCV)
   noise_sigma: 0.012        # ruído do sensor (fração do fundo de escala)
+  chromatic_aberration: 0.0012   # aberração cromática lateral (fração do raio)
+  vignette: 0.55            # escurecimento nos cantos
   record_window_s: [-0.9, 0.5]   # janela gravada, relativa ao instante em que o CG cruza o obstáculo
   jpeg_quality: 0.93
   vibration:

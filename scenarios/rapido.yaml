@@ -5,3 +5,6 @@ camera_defaults:
 cameras:
   - name: linecam
     record_window_s: [-0.25, 0.2]
+output:
+  slowmo_factor: 0.12
+  lead_in_s: 2.5

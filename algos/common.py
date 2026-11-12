@@ -63,6 +63,8 @@ class Scene:
         self.frames = {k: np.array(v) for k, v in d["frames"].items()}
         self.vertices = np.array(d["aircraft"]["vertices"], float).reshape(-1, 3)
         self.faces = np.array(d["aircraft"]["faces"], int).reshape(-1, 3)
+        # pontos usados no cálculo de folga (os mesmos da verdade); a malha completa serve às silhuetas
+        self.collision = np.array(d["aircraft"].get("collision_points", d["aircraft"]["vertices"]), float).reshape(-1, 3)
         self.markers = d["aircraft"]["markers"]
         self.x_obs = self.world["obstacle_x_m"]
         self.h_obs = self.world["obstacle_height_m"]
@@ -302,7 +304,7 @@ def decide(traj: Trajectory, scene: Scene, window_s):
         tc = (scene.x_obs - v[1]) / v[0]
         extrap = True
     pose_at = traj.fit(tc, window_s)
-    res = clearance(pose_at, tc - 0.25, tc + 0.25, scene.vertices, scene.x_obs, scene.h_obs)
+    res = clearance(pose_at, tc - 0.25, tc + 0.25, scene.collision, scene.x_obs, scene.h_obs)
     if res["clearance_m"] is None:
         return {"verdict": "SEM_DADOS", "clearance_m": None, "note": "nenhum vértice cruzou o plano"}
     Rc, pc = pose_at(res["t"])

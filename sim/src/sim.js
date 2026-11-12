@@ -1,21 +1,44 @@
 // Monta a simulação completa: mundo + aeronave + trajetória + câmeras.
 import * as THREE from 'three';
 import { buildWorld, buildMast } from './world.js';
+import { buildWorldReal } from './world_real.js';
 import { buildAircraft, poseMatrix } from './aircraft.js';
 import { simulateTakeoff, clearanceFromPoses } from './physics.js';
 import { buildCamera, idealCamera, CameraRenderer } from './cameras.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
+// Conta os carregamentos em andamento (texturas, HDRI, modelos) para saber quando a cena está pronta.
+let loading = 0;
+{
+  const m = THREE.DefaultLoadingManager, s = m.itemStart.bind(m), e = m.itemEnd.bind(m);
+  m.itemStart = (u) => { loading++; s(u); };
+  m.itemEnd = (u) => { loading--; e(u); };
+}
+
+// Reduz a malha a um conjunto de pontos (grade de `cell` m) para o cálculo de folga.
+function collisionPoints(vertices, cell = 0.008) {
+  const seen = new Set(), out = [];
+  for (let i = 0; i < vertices.length; i += 3) {
+    const k = `${Math.round(vertices[i] / cell)},${Math.round(vertices[i + 1] / cell)},${Math.round(vertices[i + 2] / cell)}`;
+    if (!seen.has(k)) { seen.add(k); out.push(vertices[i], vertices[i + 1], vertices[i + 2]); }
+  }
+  return out;
+}
+
 export async function createSim(cfg, { canvas, cameraRenderer, baseUrl = location.href, assetsUrl = '/assets/' } = {}) {
-  const world = buildWorld(cfg);
+  // Cenário realista se os assets estiverem baixados (tools/fetch_assets.py); senão, o procedural simples.
+  let real = (cfg.environment.quality ?? 'real') !== 'basic';
+  if (real) real = await fetch(assetsUrl + 'polyhaven/sky_4k.hdr', { method: 'HEAD' }).then((r) => r.ok).catch(() => false);
+  const world = real ? await buildWorldReal(cfg, assetsUrl + 'polyhaven/') : buildWorld(cfg);
   const { scene } = world;
   const ac = await buildAircraft(cfg, baseUrl, assetsUrl);
   scene.add(ac.group);
   ac.group.matrixAutoUpdate = false;
 
   const L = cfg.runway.length_m, hObs = cfg.obstacle.height_m;
-  const verts = Float64Array.from(ac.mesh.vertices);
+  const collision = collisionPoints(ac.mesh.vertices);
+  const verts = Float64Array.from(collision);
 
   // --- Trajetória ---
   const makePoseAt = (traj) => {
@@ -85,6 +108,7 @@ export async function createSim(cfg, { canvas, cameraRenderer, baseUrl = locatio
     ac.group.matrix.copy(p.m); ac.group.matrixWorldNeedsUpdate = true;
     if (ac.group.userData.prop) ac.group.userData.prop.rotation.x = ((cfg.aircraft.prop_rpm * 2 * Math.PI) / 60) * t;
     world.focusShadow(_pos.set(p.x, p.y, 0));
+    world.update?.(t);
     updateGhosts(t);
     return p;
   };
@@ -96,6 +120,7 @@ export async function createSim(cfg, { canvas, cameraRenderer, baseUrl = locatio
   };
 
   const cr = cameraRenderer ?? (canvas ? new CameraRenderer(canvas, { msaa: cfg.render?.msaa ?? 4 }) : null);
+  if (cr) cr.renderer.toneMappingExposure = cfg.render?.exposure ?? (real ? 0.42 : 0.6);
   const byName = Object.fromEntries([...cams, chase, free].map((c) => [c.name, c]));
   const render = (name, t, frameIndex = 0) => {
     const c = byName[name];
@@ -109,7 +134,7 @@ export async function createSim(cfg, { canvas, cameraRenderer, baseUrl = locatio
   };
   const metadata = () => ({
     world: { runway_length_m: L, obstacle_x_m: L, obstacle_height_m: hObs, obstacle_width_m: cfg.obstacle.width_m },
-    aircraft: { vertices: ac.mesh.vertices.map((v) => +v.toFixed(5)), faces: ac.mesh.faces, markers: ac.markers, aruco_dictionary: 'DICT_4X4_50' },
+    aircraft: { vertices: ac.mesh.vertices.map((v) => +v.toFixed(5)), faces: ac.mesh.faces, collision_points: collision.map((v) => +v.toFixed(5)), markers: ac.markers, aruco_dictionary: 'DICT_4X4_50' },
     calibration: cams.map((c) => c.calibration),
     frames: Object.fromEntries(cams.map((c) => [c.name, c.times])),
     ground_truth: {
@@ -126,13 +151,8 @@ export async function createSim(cfg, { canvas, cameraRenderer, baseUrl = locatio
     },
   });
 
-  // Espera as texturas (marcadores) carregarem.
-  await new Promise((res) => {
-    const mgr = THREE.DefaultLoadingManager; let pending = false;
-    mgr.onStart = () => { pending = true; }; mgr.onLoad = () => res();
-    setTimeout(() => { if (!pending) res(); }, 300);
-    setTimeout(res, 5000);
-  });
+  // Espera texturas/HDRI/modelos terminarem de carregar.
+  for (let k = 0; k < 1200 && (loading > 0 || k < 4); k++) await new Promise((r) => setTimeout(r, 50));
 
-  return { cfg, scene, world, aircraft: ac, traj, poseAt, cams, chase, free, byName, setTime, render, renderer: cr, metadata, setGhosts, tCross, tEnd, truthClearance };
+  return { cfg, scene, world, real, aircraft: ac, traj, poseAt, cams, chase, free, byName, setTime, render, renderer: cr, metadata, setGhosts, tCross, tEnd, truthClearance };
 }

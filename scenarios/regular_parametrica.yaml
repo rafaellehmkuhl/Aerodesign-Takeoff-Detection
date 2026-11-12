@@ -1,0 +1,18 @@
+# Aeronave paramétrica da classe Regular (a geometria é gerada pelas dimensões), em vez do modelo .glb.
+extends: rapido.yaml
+aircraft:
+  model: parametric
+  model_origin_m: [0, 0, 0]
+  wingspan_m: 2.20
+  chord_m: 0.42
+  tail_arm_m: 1.05
+  gear_height_m: 0.24
+  main_gear_x_m: -0.06
+  prop_rpm: 9000
+  markers:
+    - { id: 0, size_m: 0.25, position: [-0.075, 0.94] }
+    - { id: 1, size_m: 0.25, position: [-0.075, -0.94] }
+dynamics:
+  mass_kg: 12.5
+  static_thrust_n: 40.0
+  thrust_zero_speed_ms: 32.0

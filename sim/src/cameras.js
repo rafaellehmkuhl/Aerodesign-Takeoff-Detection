@@ -97,14 +97,19 @@ export function idealCamera(name, resolution, hfov) {
 }
 
 const POST_FS = /* glsl */`
-uniform sampler2D tAccum; uniform vec2 f; uniform float k1, k2, scale, weight, noise, seed;
+uniform sampler2D tAccum; uniform vec2 f; uniform float k1, k2, scale, weight, noise, seed, ca, vignette;
 varying vec2 vUv;
 float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main() {
   vec2 xd = (vUv - 0.5) / f, xu = xd;
   for (int i = 0; i < 7; i++) { float r2 = dot(xu, xu); xu = xd / (1. + k1 * r2 + k2 * r2 * r2); }
   vec2 uv = 0.5 + xu * f / scale;
-  gl_FragColor = vec4(texture2D(tAccum, uv).rgb * weight, 1.);
+  // Aberração cromática lateral leve e vinheta (lente real).
+  vec2 dc = (uv - 0.5);
+  float r2c = dot(xd, xd);
+  vec3 col = vec3(texture2D(tAccum, uv + dc * ca).r, texture2D(tAccum, uv).g, texture2D(tAccum, uv - dc * ca).b) * weight;
+  col *= 1.0 - vignette * r2c;
+  gl_FragColor = vec4(col, 1.);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
   vec2 p = gl_FragCoord.xy + seed * vec2(37.1, 91.7);
@@ -121,7 +126,7 @@ export class CameraRenderer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.6;
+    this.renderer.toneMappingExposure = 0.6;   // ajustado por createSim conforme o cenário
     this.msaa = msaa;
     this.targets = new Map();
     this.quadScene = new THREE.Scene();
@@ -132,7 +137,7 @@ export class CameraRenderer {
       blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, toneMapped: false,
     });
     this.postMat = new THREE.ShaderMaterial({
-      uniforms: { tAccum: { value: null }, f: { value: new THREE.Vector2() }, k1: { value: 0 }, k2: { value: 0 }, scale: { value: 1 }, weight: { value: 1 }, noise: { value: 0 }, seed: { value: 0 } },
+      uniforms: { tAccum: { value: null }, f: { value: new THREE.Vector2() }, k1: { value: 0 }, k2: { value: 0 }, scale: { value: 1 }, weight: { value: 1 }, noise: { value: 0 }, seed: { value: 0 }, ca: { value: 0 }, vignette: { value: 0 } },
       vertexShader: QUAD_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
     });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.addMat);
@@ -171,7 +176,7 @@ export class CameraRenderer {
     const u = this.postMat.uniforms;
     u.tAccum.value = tg.accum.texture; u.f.value.set(c.fx / c.W, c.fx / c.H);
     u.k1.value = c.dist.k1; u.k2.value = c.dist.k2; u.scale.value = c.scale; u.weight.value = 1 / n;
-    u.noise.value = c.spec.noise_sigma ?? 0; u.seed.value = (frameIndex * 7 + c.seed * 131) % 1000;
+    u.noise.value = c.spec.noise_sigma ?? 0; u.ca.value = c.spec.chromatic_aberration ?? 0; u.vignette.value = c.spec.vignette ?? 0; u.seed.value = (frameIndex * 7 + c.seed * 131) % 1000;
     this.quad.material = this.postMat;
     r.setRenderTarget(null); r.render(this.quadScene, this.quadCam);
   }

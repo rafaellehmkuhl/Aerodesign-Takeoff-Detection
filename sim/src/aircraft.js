@@ -109,6 +109,18 @@ function buildParametric(a) {
   return g;
 }
 
+// Filme termo-retrátil transparente: quase invisível de frente, mais opaco/reflexivo em ângulo rasante.
+function filmMaterial(src) {
+  const m = new THREE.MeshPhysicalMaterial({ color: src.color ?? 0xe8ecf2, roughness: 0.08, metalness: 0, ior: 1.5, transparent: true, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 1.2 });
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
+      float fres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 2.5);
+      float filmA = mix(0.10, 0.55, fres) + dot(totalSpecular, vec3(0.3333));
+      gl_FragColor = vec4(outgoingLight, clamp(filmA, 0.0, 1.0));`);
+  };
+  return m;
+}
+
 async function buildFromGLB(a, baseUrl) {
   const gltf = await new GLTFLoader().loadAsync(new URL(a.model, baseUrl).href);
   const g = new THREE.Group();
@@ -116,8 +128,31 @@ async function buildFromGLB(a, baseUrl) {
   inner.scale.setScalar(a.model_scale ?? 1);
   const [rx, ry, rz] = (a.model_rotation_deg ?? [0, 0, 0]).map((d) => (d * Math.PI) / 180);
   inner.rotation.set(rx, ry, rz, 'ZYX');
-  inner.traverse((o) => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+  // `model_origin_m`: onde fica o CG nas coordenadas do modelo (já em x-frente, y-esquerda, z-cima).
+  const o = a.model_origin_m ?? [0, 0, 0];
+  inner.position.set(-o[0], -o[1], -o[2]);
   g.add(inner);
+  g.updateMatrixWorld(true);
+  const films = new Map();
+  let prop = null;
+  inner.traverse((n) => {
+    if (!n.isMesh) return;
+    n.castShadow = n.receiveShadow = true;
+    const name = n.name.toLowerCase(), mat = n.material;
+    if (/adesivo|decal|sticker/.test(name)) { n.userData.noExport = true; n.castShadow = false; mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -4; }
+    if (mat && /film|filme/i.test(mat.name)) {
+      if (!films.has(mat)) films.set(mat, filmMaterial(mat));
+      n.material = films.get(mat); n.castShadow = false; n.renderOrder = 2; n.userData.film = true;
+    } else if (mat) mat.envMapIntensity = 1.0;
+    if (/^(helice|propeller|prop)\b/.test(name)) prop = n;
+  });
+  if (prop) {
+    // A hélice gira em torno do eixo x do corpo, passando pelo centro dela.
+    const c = new THREE.Box3().setFromObject(prop).getCenter(new THREE.Vector3());
+    const pivot = new THREE.Group(); pivot.position.copy(c); g.add(pivot); pivot.updateMatrixWorld(true);
+    pivot.attach(prop); prop.userData.noExport = true;
+    g.userData.prop = pivot;
+  }
   return g;
 }
 
