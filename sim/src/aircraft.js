@@ -116,7 +116,7 @@ function filmMaterial(src) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
       float fres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 2.5);
       float filmA = mix(0.10, 0.55, fres) + min(dot(totalSpecular, vec3(0.3333)), 1.0);
-      outgoingLight = min(outgoingLight, vec3(40.0));
+      outgoingLight = min(outgoingLight, vec3(2.5));
       gl_FragColor = vec4(outgoingLight, clamp(filmA, 0.0, 1.0));`);
   };
   return m;

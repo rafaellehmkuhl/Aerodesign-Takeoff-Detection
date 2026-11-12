@@ -3,6 +3,11 @@
 import * as THREE from 'three';
 import { makeRng, bandNoise, deg } from './util.js';
 
+// Antisserrilhado de brilhos: um reflexo especular minúsculo com radiância enorme domina a média das
+// amostras do MSAA e vira um pixel branco serrilhado. Limitar a radiância de saída dos materiais (bem acima
+// do branco difuso ao sol) resolve isso sem mudar a imagem depois do tone mapping.
+THREE.ShaderChunk.opaque_fragment = 'outgoingLight = min(outgoingLight, vec3(2.5));\n' + THREE.ShaderChunk.opaque_fragment;
+
 const D_CV = new THREE.Matrix4().makeScale(1, -1, -1); // eixos three (x dir, y cima, z trás) -> OpenCV
 
 function smallRot(rx, ry, rz) {
@@ -93,11 +98,29 @@ export function idealCamera(name, resolution, hfov) {
   const [W, H] = resolution, fx = W / 2 / Math.tan(deg(hfov) / 2);
   const cam = new THREE.PerspectiveCamera(2 * Math.atan(H / 2 / fx) * (180 / Math.PI), W / H, 0.1, 5000);
   cam.up.set(0, 0, 1);
-  return { name, W, H, fx, dist: { k1: 0, k2: 0 }, scale: 1, cam, ideal: true, spec: { blur_samples: 1, exposure_s: 0, noise_sigma: 0, bloom: 0.25, saturation: 1.12, vignette: 0.35 }, seed: 99 };
+  return { name, W, H, fx, dist: { k1: 0, k2: 0 }, scale: 1, cam, ideal: true, spec: { blur_samples: 1, exposure_s: 0, noise_sigma: 0, bloom: 0.25, saturation: 1.12, vignette: 0.35, ambient_occlusion: 1.0 }, seed: 99 };
 }
 
 const POST_FS = /* glsl */`
-uniform sampler2D tAccum, tBloom; uniform vec2 f; uniform float k1, k2, scale, weight, noise, seed, ca, vignette, bloom, sat;
+uniform sampler2D tAccum, tBloom; uniform vec2 f, px; uniform float k1, k2, scale, weight, noise, seed, ca, vignette, bloom, sat, fxaa;
+// FXAA sobre a imagem HDR: as cores são comprimidas (c / (1 + luma)) antes de misturar, para que um vizinho
+// muito claro não domine, e expandidas de volta depois.
+vec3 cmp(vec2 u) { vec3 c = texture2D(tAccum, u).rgb * weight; return c / (1. + dot(c, vec3(.299, .587, .114))); }
+float lum(vec3 c) { return dot(c, vec3(.299, .587, .114)); }
+vec3 aa(vec2 u) {
+  vec3 m = cmp(u);
+  if (fxaa < 0.5) return m / max(1. - lum(m), 1e-3);
+  float lNW = lum(cmp(u + vec2(-1., -1.) * px)), lNE = lum(cmp(u + vec2(1., -1.) * px)), lSW = lum(cmp(u + vec2(-1., 1.) * px)), lSE = lum(cmp(u + vec2(1., 1.) * px)), lM = lum(m);
+  float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE))), lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+  vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+  float red = max((lNW + lNE + lSW + lSE) * 0.03125, 1. / 128.);
+  dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + red), -8., 8.) * px;
+  vec3 a = 0.5 * (cmp(u + dir * (1. / 3. - 0.5)) + cmp(u + dir * (2. / 3. - 0.5)));
+  vec3 b = a * 0.5 + 0.25 * (cmp(u - dir * 0.5) + cmp(u + dir * 0.5));
+  float lB = lum(b);
+  vec3 r = (lB < lMin || lB > lMax) ? a : b;
+  return r / max(1. - lum(r), 1e-3);
+}
 varying vec2 vUv;
 float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main() {
@@ -107,7 +130,8 @@ void main() {
   // Aberração cromática lateral leve e vinheta (lente real).
   vec2 dc = (uv - 0.5);
   float r2c = dot(xd, xd);
-  vec3 col = vec3(texture2D(tAccum, uv + dc * ca).r, texture2D(tAccum, uv).g, texture2D(tAccum, uv - dc * ca).b) * weight;
+  vec3 col = aa(uv);
+  if (ca > 0.) { vec3 c0 = texture2D(tAccum, uv).rgb; col.r += (texture2D(tAccum, uv + dc * ca).r - c0.r) * weight; col.b += (texture2D(tAccum, uv - dc * ca).b - c0.b) * weight; }
   if (!(col.r + col.g + col.b < 1e6)) col = vec3(0.);
   col += texture2D(tBloom, uv).rgb * bloom;      // brilho difuso da lente em torno de áreas muito claras
   col *= 1.0 - vignette * r2c;
@@ -135,12 +159,16 @@ export class CameraRenderer {
     this.quadScene = new THREE.Scene();
     this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.addMat = new THREE.ShaderMaterial({
-      uniforms: { t: { value: null } }, vertexShader: QUAD_VS,
-      fragmentShader: 'uniform sampler2D t; varying vec2 vUv; void main(){ gl_FragColor = vec4(texture2D(t, vUv).rgb, 1.); }',
+      uniforms: { t: { value: null }, tAO: { value: null }, ao: { value: 0 } }, vertexShader: QUAD_VS,
+      fragmentShader: `uniform sampler2D t, tAO; uniform float ao; varying vec2 vUv;
+        void main(){ vec3 c = texture2D(t, vUv).rgb;
+          // a oclusão pertence à luz ambiente: some nos pixels fortemente iluminados pelo sol
+          float l = dot(c, vec3(.299, .587, .114)), k = ao * (1. - smoothstep(0.25, 1.1, l));
+          gl_FragColor = vec4(c * mix(1., texture2D(tAO, vUv).r, k), 1.); }`,
       blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, toneMapped: false,
     });
     this.postMat = new THREE.ShaderMaterial({
-      uniforms: { tAccum: { value: null }, f: { value: new THREE.Vector2() }, k1: { value: 0 }, k2: { value: 0 }, scale: { value: 1 }, weight: { value: 1 }, noise: { value: 0 }, seed: { value: 0 }, ca: { value: 0 }, vignette: { value: 0 }, tBloom: { value: null }, bloom: { value: 0 }, sat: { value: 1 } },
+      uniforms: { tAccum: { value: null }, f: { value: new THREE.Vector2() }, k1: { value: 0 }, k2: { value: 0 }, scale: { value: 1 }, weight: { value: 1 }, noise: { value: 0 }, seed: { value: 0 }, ca: { value: 0 }, vignette: { value: 0 }, tBloom: { value: null }, bloom: { value: 0 }, sat: { value: 1 }, px: { value: new THREE.Vector2() }, fxaa: { value: 1 } },
       vertexShader: QUAD_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
     });
     // Bloom: passa-alta em 1/4 da resolução + desfoque separável.
@@ -157,6 +185,28 @@ export class CameraRenderer {
           c += (texture2D(t, vUv + d * 5.18).rgb + texture2D(t, vUv - d * 5.18).rgb) * 0.0104;
           gl_FragColor = vec4(c, 1.); }`,
     });
+    // Oclusão de ambiente em espaço de tela (meia resolução), a partir do depth buffer.
+    this.aoMat = new THREE.ShaderMaterial({
+      uniforms: { tDepth: { value: null }, proj: { value: new THREE.Matrix4() }, projInv: { value: new THREE.Matrix4() }, texel: { value: new THREE.Vector2() }, radius: { value: 0.35 } },
+      vertexShader: QUAD_VS, depthTest: false, depthWrite: false, toneMapped: false,
+      fragmentShader: `uniform sampler2D tDepth; uniform mat4 proj, projInv; uniform vec2 texel; uniform float radius; varying vec2 vUv;
+        vec3 vp(vec2 u) { vec4 p = projInv * vec4(u * 2. - 1., texture2D(tDepth, u).x * 2. - 1., 1.); return p.xyz / p.w; }
+        float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+        void main() {
+          if (texture2D(tDepth, vUv).x >= 0.99999) { gl_FragColor = vec4(1.); return; }
+          vec3 p = vp(vUv), n = normalize(cross(vp(vUv + vec2(texel.x, 0.)) - p, vp(vUv + vec2(0., texel.y)) - p));
+          if (dot(n, p) > 0.) n = -n;
+          float a0 = hash(gl_FragCoord.xy) * 6.2832, occ = 0.;
+          for (int i = 0; i < 10; i++) {
+            float fi = float(i), r = radius * (0.2 + 0.8 * fract(fi * 0.618 + 0.37)), a = a0 + fi * 2.39996;
+            vec4 c = proj * vec4(p + vec3(cos(a), sin(a), 0.) * r + n * radius * 0.1, 1.);
+            vec3 v = vp(c.xy / c.w * 0.5 + 0.5) - p;
+            float d2 = dot(v, v);
+            occ += max(dot(n, v) - 0.015, 0.) / (d2 + 0.004) * step(d2, radius * radius * 4.);
+          }
+          gl_FragColor = vec4(vec3(clamp(1. - occ * 0.045, 0., 1.)), 1.);
+        }`,
+    });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.addMat);
     this.quad.frustumCulled = false;
     this.quadScene.add(this.quad);
@@ -167,8 +217,10 @@ export class CameraRenderer {
     if (!this.targets.has(key)) {
       const opts = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
       this.targets.set(key, {
-        scene: new THREE.WebGLRenderTarget(w, h, { ...opts, samples: this.msaa, depthBuffer: true }),
+        scene: new THREE.WebGLRenderTarget(w, h, { ...opts, samples: this.msaa, depthBuffer: true, depthTexture: new THREE.DepthTexture(w, h) }),
         accum: new THREE.WebGLRenderTarget(w, h, { ...opts, depthBuffer: false }),
+        ao1: new THREE.WebGLRenderTarget(Math.ceil(w / 2), Math.ceil(h / 2), { ...opts, depthBuffer: false }),
+        ao2: new THREE.WebGLRenderTarget(Math.ceil(w / 2), Math.ceil(h / 2), { ...opts, depthBuffer: false }),
         b1: new THREE.WebGLRenderTarget(Math.ceil(w / 4), Math.ceil(h / 4), { ...opts, depthBuffer: false }),
         b2: new THREE.WebGLRenderTarget(Math.ceil(w / 4), Math.ceil(h / 4), { ...opts, depthBuffer: false }),
       });
@@ -189,6 +241,16 @@ export class CameraRenderer {
       if (c.truePoseAt) { c.truePoseAt(ts, c.cam.matrix); c.cam.matrixWorld.copy(c.cam.matrix); c.cam.matrixWorldInverse.copy(c.cam.matrix).invert(); }
       else c.cam.updateMatrixWorld(true);
       r.setRenderTarget(tg.scene); r.render(scene, c.cam);
+      const aoK = c.spec.ambient_occlusion ?? 0;
+      if (aoK > 0) {
+        const m = this.aoMat.uniforms; m.tDepth.value = tg.scene.depthTexture; m.proj.value.copy(c.cam.projectionMatrix); m.projInv.value.copy(c.cam.projectionMatrixInverse);
+        m.texel.value.set(1 / tg.scene.width, 1 / tg.scene.height);
+        this.quad.material = this.aoMat; r.setRenderTarget(tg.ao1); r.render(this.quadScene, this.quadCam);
+        this.quad.material = this.blurMat;
+        this.blurMat.uniforms.t.value = tg.ao1.texture; this.blurMat.uniforms.d.value.set(1 / tg.ao1.width, 0); r.setRenderTarget(tg.ao2); r.render(this.quadScene, this.quadCam);
+        this.blurMat.uniforms.t.value = tg.ao2.texture; this.blurMat.uniforms.d.value.set(0, 1 / tg.ao1.height); r.setRenderTarget(tg.ao1); r.render(this.quadScene, this.quadCam);
+      }
+      this.addMat.uniforms.tAO.value = tg.ao1.texture; this.addMat.uniforms.ao.value = aoK;
       this.quad.material = this.addMat; this.addMat.uniforms.t.value = tg.scene.texture;
       r.setRenderTarget(tg.accum); r.autoClear = false; r.render(this.quadScene, this.quadCam); r.autoClear = true;
     }
@@ -205,6 +267,7 @@ export class CameraRenderer {
       }
     }
     u.tBloom.value = tg.b1.texture; u.bloom.value = bloom; u.sat.value = c.spec.saturation ?? 1;
+    u.px.value.set(1 / tg.accum.width, 1 / tg.accum.height); u.fxaa.value = (c.spec.fxaa ?? true) ? 1 : 0;
     u.tAccum.value = tg.accum.texture; u.f.value.set(c.fx / c.W, c.fx / c.H);
     u.k1.value = c.dist.k1; u.k2.value = c.dist.k2; u.scale.value = c.scale; u.weight.value = 1 / n;
     u.noise.value = c.spec.noise_sigma ?? 0; u.ca.value = c.spec.chromatic_aberration ?? 0; u.vignette.value = c.spec.vignette ?? 0; u.seed.value = (frameIndex * 7 + c.seed * 131) % 1000;

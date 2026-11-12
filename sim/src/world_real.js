@@ -163,10 +163,12 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setIndex(idx);
-    const mat = addWind(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.7, side: THREE.DoubleSide, envMapIntensity: 0.7 }), time, wind, { amp: 0.004, freq: 2.2, heightExpr: 'uv.y', scale: 1.4 });
+    // A grama fica parada por padrão: o movimento não muda nada relevante para as câmeras (environment.grass_wind liga).
+    const base = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.7, side: THREE.DoubleSide, envMapIntensity: 0.7 });
+    const mat = env.grass_wind ? addWind(base, time, wind, { amp: 0.004, freq: 2.2, heightExpr: 'uv.y', scale: 1.4 }) : base;
     const prev = mat.onBeforeCompile;
     mat.onBeforeCompile = (sh, r) => {
-      prev(sh, r);
+      prev?.(sh, r);
       // Base escura (oclusão entre lâminas), ponta clara e amarelada.
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n#define USE_UV\n')
         .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(vec3(0.28, 0.34, 0.26), vec3(1.25, 1.2, 0.85), smoothstep(0.0, 1.0, vUv.y));');
