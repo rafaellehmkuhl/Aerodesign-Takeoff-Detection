@@ -93,11 +93,11 @@ export function idealCamera(name, resolution, hfov) {
   const [W, H] = resolution, fx = W / 2 / Math.tan(deg(hfov) / 2);
   const cam = new THREE.PerspectiveCamera(2 * Math.atan(H / 2 / fx) * (180 / Math.PI), W / H, 0.1, 5000);
   cam.up.set(0, 0, 1);
-  return { name, W, H, fx, dist: { k1: 0, k2: 0 }, scale: 1, cam, ideal: true, spec: { blur_samples: 1, exposure_s: 0, noise_sigma: 0 }, seed: 99 };
+  return { name, W, H, fx, dist: { k1: 0, k2: 0 }, scale: 1, cam, ideal: true, spec: { blur_samples: 1, exposure_s: 0, noise_sigma: 0, bloom: 0.25, saturation: 1.12, vignette: 0.35 }, seed: 99 };
 }
 
 const POST_FS = /* glsl */`
-uniform sampler2D tAccum; uniform vec2 f; uniform float k1, k2, scale, weight, noise, seed, ca, vignette;
+uniform sampler2D tAccum, tBloom; uniform vec2 f; uniform float k1, k2, scale, weight, noise, seed, ca, vignette, bloom, sat;
 varying vec2 vUv;
 float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main() {
@@ -108,10 +108,13 @@ void main() {
   vec2 dc = (uv - 0.5);
   float r2c = dot(xd, xd);
   vec3 col = vec3(texture2D(tAccum, uv + dc * ca).r, texture2D(tAccum, uv).g, texture2D(tAccum, uv - dc * ca).b) * weight;
+  if (!(col.r + col.g + col.b < 1e6)) col = vec3(0.);
+  col += texture2D(tBloom, uv).rgb * bloom;      // brilho difuso da lente em torno de áreas muito claras
   col *= 1.0 - vignette * r2c;
   gl_FragColor = vec4(col, 1.);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
+  gl_FragColor.rgb = mix(vec3(dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722))), gl_FragColor.rgb, sat);
   vec2 p = gl_FragCoord.xy + seed * vec2(37.1, 91.7);
   float n = hash(p) + hash(p + 17.3) + hash(p + 41.9) + hash(p + 77.7) - 2.;   // ~gaussiano, sigma 0.577
   vec3 chroma = vec3(hash(p + 3.1), hash(p + 5.7), hash(p + 9.3)) - .5;
@@ -137,8 +140,22 @@ export class CameraRenderer {
       blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, toneMapped: false,
     });
     this.postMat = new THREE.ShaderMaterial({
-      uniforms: { tAccum: { value: null }, f: { value: new THREE.Vector2() }, k1: { value: 0 }, k2: { value: 0 }, scale: { value: 1 }, weight: { value: 1 }, noise: { value: 0 }, seed: { value: 0 }, ca: { value: 0 }, vignette: { value: 0 } },
+      uniforms: { tAccum: { value: null }, f: { value: new THREE.Vector2() }, k1: { value: 0 }, k2: { value: 0 }, scale: { value: 1 }, weight: { value: 1 }, noise: { value: 0 }, seed: { value: 0 }, ca: { value: 0 }, vignette: { value: 0 }, tBloom: { value: null }, bloom: { value: 0 }, sat: { value: 1 } },
       vertexShader: QUAD_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false,
+    });
+    // Bloom: passa-alta em 1/4 da resolução + desfoque separável.
+    this.brightMat = new THREE.ShaderMaterial({
+      uniforms: { t: { value: null }, weight: { value: 1 }, thr: { value: 2.2 } }, vertexShader: QUAD_VS, depthTest: false, depthWrite: false, toneMapped: false,
+      fragmentShader: 'uniform sampler2D t; uniform float weight, thr; varying vec2 vUv; void main(){ vec3 c = texture2D(t, vUv).rgb * weight; float l = max(c.r, max(c.g, c.b)); if (!(l >= 0. && l < 1e5)) { c = vec3(0.); l = 0.; } c = min(c, vec3(24.)); l = min(l, 24.); gl_FragColor = vec4(c * max(l - thr, 0.) / max(l, 1e-4), 1.); }',
+    });
+    this.blurMat = new THREE.ShaderMaterial({
+      uniforms: { t: { value: null }, d: { value: new THREE.Vector2() } }, vertexShader: QUAD_VS, depthTest: false, depthWrite: false, toneMapped: false,
+      fragmentShader: `uniform sampler2D t; uniform vec2 d; varying vec2 vUv;
+        void main(){ vec3 c = texture2D(t, vUv).rgb * 0.1964; 
+          c += (texture2D(t, vUv + d * 1.41).rgb + texture2D(t, vUv - d * 1.41).rgb) * 0.2969;
+          c += (texture2D(t, vUv + d * 3.29).rgb + texture2D(t, vUv - d * 3.29).rgb) * 0.0945;
+          c += (texture2D(t, vUv + d * 5.18).rgb + texture2D(t, vUv - d * 5.18).rgb) * 0.0104;
+          gl_FragColor = vec4(c, 1.); }`,
     });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.addMat);
     this.quad.frustumCulled = false;
@@ -152,6 +169,8 @@ export class CameraRenderer {
       this.targets.set(key, {
         scene: new THREE.WebGLRenderTarget(w, h, { ...opts, samples: this.msaa, depthBuffer: true }),
         accum: new THREE.WebGLRenderTarget(w, h, { ...opts, depthBuffer: false }),
+        b1: new THREE.WebGLRenderTarget(Math.ceil(w / 4), Math.ceil(h / 4), { ...opts, depthBuffer: false }),
+        b2: new THREE.WebGLRenderTarget(Math.ceil(w / 4), Math.ceil(h / 4), { ...opts, depthBuffer: false }),
       });
     }
     return this.targets.get(key);
@@ -174,6 +193,18 @@ export class CameraRenderer {
       r.setRenderTarget(tg.accum); r.autoClear = false; r.render(this.quadScene, this.quadCam); r.autoClear = true;
     }
     const u = this.postMat.uniforms;
+    const bloom = c.spec.bloom ?? 0;
+    if (bloom > 0) {
+      const bw = tg.b1.width, bh = tg.b1.height;
+      this.quad.material = this.brightMat; this.brightMat.uniforms.t.value = tg.accum.texture; this.brightMat.uniforms.weight.value = 1 / n;
+      r.setRenderTarget(tg.b1); r.render(this.quadScene, this.quadCam);
+      this.quad.material = this.blurMat;
+      for (let k = 0; k < 2; k++) {
+        this.blurMat.uniforms.t.value = tg.b1.texture; this.blurMat.uniforms.d.value.set((1 + k) / bw, 0); r.setRenderTarget(tg.b2); r.render(this.quadScene, this.quadCam);
+        this.blurMat.uniforms.t.value = tg.b2.texture; this.blurMat.uniforms.d.value.set(0, (1 + k) / bh); r.setRenderTarget(tg.b1); r.render(this.quadScene, this.quadCam);
+      }
+    }
+    u.tBloom.value = tg.b1.texture; u.bloom.value = bloom; u.sat.value = c.spec.saturation ?? 1;
     u.tAccum.value = tg.accum.texture; u.f.value.set(c.fx / c.W, c.fx / c.H);
     u.k1.value = c.dist.k1; u.k2.value = c.dist.k2; u.scale.value = c.scale; u.weight.value = 1 / n;
     u.noise.value = c.spec.noise_sigma ?? 0; u.ca.value = c.spec.chromatic_aberration ?? 0; u.vignette.value = c.spec.vignette ?? 0; u.seed.value = (frameIndex * 7 + c.seed * 131) % 1000;

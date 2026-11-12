@@ -113,7 +113,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   const grassMat = addMacro(new THREE.MeshStandardMaterial({
     map: tex(P + 'grass_diff.jpg', { srgb: true, repeat: 4000 / 2.6 }), normalMap: tex(P + 'grass_nor.jpg', { repeat: 4000 / 2.6 }),
     roughnessMap: tex(P + 'grass_rough.jpg', { repeat: 4000 / 2.6 }), roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3), envMapIntensity: 0.6,
-  }), tex(P + 'grass_macro_diff.jpg', { srgb: true }), { scale: 55, strength: 0.8, tint: [0.42, 0.78, 0.26], mono: true });
+  }), tex(P + 'grass_macro_diff.jpg', { srgb: true }), { scale: 55, strength: 0.8, tint: [0.56, 0.9, 0.3], mono: true });
   const grass = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000, 200, 200), grassMat);
   grass.position.z = -0.02; grass.receiveShadow = true; scene.add(grass);
 
@@ -146,33 +146,42 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     m.position.set(2 + (L + 30) * rng.uniform(), (rng.uniform() - 0.5) * 2.4, 0.002); m.rotation.z = (rng.uniform() - 0.5) * 0.05; scene.add(m);
   }
 
-  // --- Grama 3D (tufos) nas laterais da pista, perto da zona do obstáculo ---
+  // --- Gramado 3D denso nas laterais da pista (touceiras instanciadas, com vento) ---
   if (env.grass_3d ?? true) {
-    const blades = 7, pos = [], uv = [], idx = [], nor = [];
+    const blades = 10, pos = [], uv = [], idx = [], nor = [];
     for (let b = 0; b < blades; b++) {
-      const a = rng.uniform() * Math.PI * 2, r = 0.03 * rng.uniform(), w = 0.0025 + 0.002 * rng.uniform(), h = 0.06 + 0.06 * rng.uniform();
-      const lean = 0.7 * (rng.uniform() - 0.5), cx = r * Math.cos(a), cy = r * Math.sin(a), dx = Math.cos(a + 1.3) * w, dy = Math.sin(a + 1.3) * w, base = pos.length / 3;
-      pos.push(cx - dx, cy - dy, 0, cx + dx, cy + dy, 0, cx + lean * h * 0.4 * Math.cos(a) + dx * 0.5, cy + lean * h * 0.4 * Math.sin(a) + dy * 0.5, h * 0.6,
-        cx + lean * h * Math.cos(a), cy + lean * h * Math.sin(a), h);
-      uv.push(0, 0, 1, 0, 0.5, 0.6, 0.5, 1); for (let k = 0; k < 4; k++) nor.push(0, 0, 1);
-      idx.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+      // Cada lâmina: um quadrilátero + ponta, curvada para fora da touceira.
+      const a = rng.uniform() * Math.PI * 2, r = 0.045 * Math.sqrt(rng.uniform()), w = 0.0035 + 0.003 * rng.uniform(), h = 0.055 + 0.07 * rng.uniform();
+      const lean = 0.25 + 0.6 * rng.uniform(), ca = Math.cos(a), sa = Math.sin(a), cx = r * ca, cy = r * sa, tx = -sa * w, ty = ca * w, base = pos.length / 3;
+      const at = (f, k) => [cx + ca * lean * h * f * f + tx * k, cy + sa * lean * h * f * f + ty * k, h * f];
+      pos.push(...at(0, -1), ...at(0, 1), ...at(0.55, -0.75), ...at(0.55, 0.75), ...at(1, 0));
+      uv.push(0, 0, 1, 0, 0, 0.55, 1, 0.55, 0.5, 1);
+      // Normais quase verticais, inclinadas para fora: sombreamento macio de gramado.
+      for (let k = 0; k < 5; k++) { const n = new THREE.Vector3(ca * 0.35, sa * 0.35, 1).normalize(); nor.push(n.x, n.y, n.z); }
+      idx.push(base, base + 1, base + 2, base + 2, base + 1, base + 3, base + 2, base + 3, base + 4);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setIndex(idx);
-    const mat = addWind(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.85, side: THREE.DoubleSide, envMapIntensity: 0.5 }), time, wind, { amp: 0.0035, freq: 2.2, heightExpr: 'uv.y', scale: 1.4 });
+    const mat = addWind(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.7, side: THREE.DoubleSide, envMapIntensity: 0.7 }), time, wind, { amp: 0.004, freq: 2.2, heightExpr: 'uv.y', scale: 1.4 });
     const prev = mat.onBeforeCompile;
-    mat.onBeforeCompile = (sh, r) => { prev(sh, r); sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(0.55, 1.25, vUv.y);').replace('#include <common>', '#include <common>\n#define USE_UV\n'); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n#define USE_UV\n'); };
-    const dens = env.grass_density_per_m2 ?? 45, x0 = L - 30, x1 = L + 24, yMax = Wd / 2 + 11;
-    const n = Math.round(dens * (x1 - x0) * (yMax - Wd / 2 - 0.4) * 2);
+    mat.onBeforeCompile = (sh, r) => {
+      prev(sh, r);
+      // Base escura (oclusão entre lâminas), ponta clara e amarelada.
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n#define USE_UV\n')
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(vec3(0.28, 0.34, 0.26), vec3(1.25, 1.2, 0.85), smoothstep(0.0, 1.0, vUv.y));');
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n#define USE_UV\n');
+    };
+    const dens = env.grass_density_per_m2 ?? 55, x0 = L - 36, x1 = L + 28, y0 = Wd / 2 + 0.42, core = 7, tail = 18;
+    const n = Math.round(dens * (x1 - x0) * 2 * (core + tail * 0.4));
     const inst = new THREE.InstancedMesh(g, mat, n);
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), up = new THREE.Vector3(0, 0, 1);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), up = new THREE.Vector3(0, 0, 1), pCore = core / (core + tail * 0.4);
     for (let i = 0; i < n; i++) {
-      const side = i % 2 ? 1 : -1, y = side * (Wd / 2 + 0.45 + (yMax - Wd / 2 - 0.45) * rng.uniform() ** 2.2), x = x0 + (x1 - x0) * (0.5 + 0.5 * Math.sign(rng.uniform() - 0.5) * rng.uniform() ** 0.6);
-      const s = 0.7 + 0.9 * rng.uniform() ** 2;
-      m4.compose(new THREE.Vector3(x, y, -0.02), q.setFromAxisAngle(up, rng.uniform() * 6.28), new THREE.Vector3(s, s, s));
+      const side = i % 2 ? 1 : -1, d = rng.uniform() < pCore ? core * rng.uniform() : core + tail * (1 - Math.sqrt(rng.uniform()));
+      const s = 0.75 + 0.7 * rng.uniform() ** 2;
+      m4.compose(new THREE.Vector3(x0 + (x1 - x0) * rng.uniform(), side * (y0 + d), -0.02), q.setFromAxisAngle(up, rng.uniform() * 6.28), new THREE.Vector3(s, s, s * (0.8 + 0.5 * rng.uniform())));
       inst.setMatrixAt(i, m4);
-      inst.setColorAt(i, col.setHSL(0.2 + 0.06 * rng.uniform(), 0.45 + 0.2 * rng.uniform(), 0.2 + 0.1 * rng.uniform()));
+      inst.setColorAt(i, col.setHSL(0.2 + 0.07 * rng.uniform(), 0.5 + 0.25 * rng.uniform(), 0.2 + 0.12 * rng.uniform()));
     }
     inst.receiveShadow = true; inst.frustumCulled = false; scene.add(inst);
   }
@@ -208,18 +217,26 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     leafMat.onBeforeCompile = (sh, r) => { p0(sh, r); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aH;'); };
     const barkMat = new THREE.MeshStandardMaterial({ map: tex(P + 'bark_diff.jpg', { srgb: true }), roughness: 0.95, envMapIntensity: 0.4 });
     barkMat.map.repeat.set(1, 3);
-    const N = 150, variants = [makeCanopy(900), makeCanopy(700), makeCanopy(1100)];
-    const trunkG = new THREE.CylinderGeometry(0.5, 0.75, 1, 8, 1, true); trunkG.rotateX(Math.PI / 2);
-    const canopies = variants.map((g) => new THREE.InstancedMesh(g, leafMat, Math.ceil(N / variants.length) + 1));
+    const N = 130, variants = [makeCanopy(420), makeCanopy(340), makeCanopy(500)];
+    const trunkG = new THREE.CylinderGeometry(0.5, 0.8, 1, 8, 1, true); trunkG.rotateX(Math.PI / 2);
+    const canopies = variants.map((g) => new THREE.InstancedMesh(g, leafMat, N * 3));
     const trunks = new THREE.InstancedMesh(trunkG, barkMat, N);
     const counts = variants.map(() => 0), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), up = new THREE.Vector3(0, 0, 1);
     for (let i = 0; i < N; i++) {
+      // Arvoredo em volta do campo, com clareira do lado das tendas e do hangar.
       const ang = rng.uniform() * 2 * Math.PI, r = 85 + 190 * rng.uniform() ** 1.4;
-      const x = L / 2 + r * Math.cos(ang) * 1.5, y = r * Math.sin(ang), h = 6 + 8 * rng.uniform(), rad = 2.6 + 3.2 * rng.uniform(), v = i % variants.length;
-      m4.compose(new THREE.Vector3(x, y, h * 0.55 + rad * 0.45), q.setFromAxisAngle(up, rng.uniform() * 6.28), new THREE.Vector3(rad, rad, rad * (0.95 + 0.4 * rng.uniform())));
-      canopies[v].setMatrixAt(counts[v], m4);
-      canopies[v].setColorAt(counts[v]++, col.setHSL(0.24 + 0.08 * rng.uniform(), 0.45 + 0.25 * rng.uniform(), 0.38 + 0.2 * rng.uniform()));
-      m4.compose(new THREE.Vector3(x, y, h * 0.3), q.identity(), new THREE.Vector3(0.45 + 0.05 * rad, 0.45 + 0.05 * rad, h * 0.6));
+      const x = L / 2 + r * Math.cos(ang) * 1.5, y = r * Math.sin(ang), h = 7 + 9 * rng.uniform(), rad = 2.4 + 2.6 * rng.uniform();
+      if (y > 40 && y < 110 && x > L - 60 && x < L + 40) continue;
+      const hue = 0.24 + 0.08 * rng.uniform(), sat = 0.45 + 0.25 * rng.uniform(), lit = 0.36 + 0.18 * rng.uniform(), lobes = 3 + Math.floor(3 * rng.uniform());
+      for (let k = 0; k < lobes; k++) {
+        // copa = lóbulo central + lóbulos menores deslocados (silhueta irregular)
+        const v = (i + k) % variants.length, a = rng.uniform() * 6.28, off = k ? rad * (0.55 + 0.5 * rng.uniform()) : 0, sc = k ? rad * (0.5 + 0.35 * rng.uniform()) : rad;
+        m4.compose(new THREE.Vector3(x + off * Math.cos(a), y + off * Math.sin(a), h * 0.62 + rad * 0.5 + (k ? rad * (rng.uniform() - 0.35) * 0.9 : 0)),
+          q.setFromAxisAngle(up, rng.uniform() * 6.28), new THREE.Vector3(sc, sc, sc * (0.85 + 0.35 * rng.uniform())));
+        canopies[v].setMatrixAt(counts[v], m4);
+        canopies[v].setColorAt(counts[v]++, col.setHSL(hue + 0.02 * (rng.uniform() - 0.5), sat, lit * (0.85 + 0.3 * rng.uniform())));
+      }
+      m4.compose(new THREE.Vector3(x, y, h * 0.34), q.identity(), new THREE.Vector3(0.4 + 0.06 * rad, 0.4 + 0.06 * rad, h * 0.68));
       trunks.setMatrixAt(i, m4);
     }
     canopies.forEach((c, v) => { c.count = counts[v]; c.frustumCulled = false; scene.add(c); });
@@ -245,6 +262,46 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
       for (const [a, b] of [[0.8, 0.3], [0.8, -0.3], [-0.8, 0.3], [-0.8, -0.3]]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.74, 6), metal); leg.rotation.x = Math.PI / 2; leg.position.set(a, b, 0.37); g.add(leg); }
       const box = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.35), new THREE.MeshStandardMaterial({ color: ['#30333a', '#7a5a36', '#274a8a'][i % 3], roughness: 0.7 })); box.position.set(-0.3 + 0.6 * rng.uniform(), 0.9, 0.175); box.castShadow = true; g.add(box);
       g.position.set(-8 + i * 9.2, 25 + 2.5 * rng.uniform(), 0); g.rotation.z = (rng.uniform() - 0.5) * 0.15; scene.add(g);
+    }
+    // Hangar ao fundo.
+    const corr = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d');
+      for (let i = 0; i < 256; i++) { const v = 150 + 55 * Math.sin((i / 256) * Math.PI * 2 * 16); x.fillStyle = `rgb(${v},${v + 3},${v + 6})`; x.fillRect(i, 0, 1, 64); }
+      x.fillStyle = 'rgba(60,50,40,0.25)'; x.fillRect(0, 52, 256, 12);
+      const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.repeat.set(6, 1); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; })();
+    const wallM = new THREE.MeshStandardMaterial({ map: corr, roughness: 0.5, metalness: 0.55 });
+    const roofM = new THREE.MeshStandardMaterial({ color: '#6f7780', roughness: 0.45, metalness: 0.7 });
+    for (const [hx, hy, hw, hd, hh] of [[L - 75, 135, 46, 26, 8]]) {
+      const hb = new THREE.Mesh(new THREE.BoxGeometry(hw, hd, hh), wallM); hb.position.set(hx, hy, hh / 2); hb.castShadow = hb.receiveShadow = true; scene.add(hb);
+      const hr = new THREE.Mesh(new THREE.CylinderGeometry(hd / 2, hd / 2, hw, 24, 1, false, 0, Math.PI), roofM);
+      hr.rotation.set(0, 0, Math.PI / 2); hr.scale.set(1, 1, 0.28); hr.position.set(hx, hy, hh); hr.castShadow = true; scene.add(hr);
+      const door = new THREE.Mesh(new THREE.PlaneGeometry(hw * 0.6, hh * 0.8), new THREE.MeshStandardMaterial({ color: '#23272c', roughness: 0.6, metalness: 0.4 }));
+      door.rotation.x = Math.PI / 2; door.position.set(hx, hy - hd / 2 - 0.02, hh * 0.4); scene.add(door);
+    }
+    // Alambrado de isolamento do público com faixas de lona.
+    const banner = (text, bg, fg) => {
+      const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const x = c.getContext('2d');
+      x.fillStyle = bg; x.fillRect(0, 0, 1024, 256); x.fillStyle = fg; x.font = 'bold 150px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, 512, 136);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+      return new THREE.MeshStandardMaterial({ map: t, roughness: 0.75, side: THREE.DoubleSide });
+    };
+    const banners = [banner('AERODESIGN', '#12305e', '#f4f4f0'), banner('DECOLAGEM', '#c8102e', '#ffffff'), banner('PISTA', '#f2c230', '#1b1b1b'), banner('EQUIPE 110', '#1f7a4a', '#ffffff')];
+    const railG = new THREE.CylinderGeometry(0.018, 0.018, 1, 6);
+    const fy = Wd / 2 + 15;
+    for (let x = -12, k = 0; x < L + 46; x += 2.5, k++) {
+      const post = new THREE.Mesh(railG, metal); post.scale.y = 1.1; post.rotation.x = Math.PI / 2; post.position.set(x, fy, 0.55); post.castShadow = true; scene.add(post);
+      for (const z of [0.25, 1.05]) { const rail = new THREE.Mesh(railG, metal); rail.scale.y = 2.5; rail.rotation.z = Math.PI / 2; rail.position.set(x + 1.25, fy, z); scene.add(rail); }
+      if (k % 3 !== 2) {
+        const bn = new THREE.Mesh(new THREE.PlaneGeometry(2.35, 0.7), banners[(k * 7) % banners.length]);
+        bn.rotation.x = Math.PI / 2; bn.position.set(x + 1.25, fy - 0.02, 0.65); bn.castShadow = true; scene.add(bn);
+      }
+    }
+    // Bandeiras ao vento.
+    const flagG = new THREE.PlaneGeometry(1.4, 0.9, 12, 4); flagG.translate(0.7, 0, 0);
+    for (let i = 0; i < 6; i++) {
+      const px = -4 + i * 13, py = fy + 1.2, fp = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 5, 8), metal);
+      fp.rotation.x = Math.PI / 2; fp.position.set(px, py, 2.5); fp.castShadow = true; scene.add(fp);
+      const fm = addWind(new THREE.MeshStandardMaterial({ color: ['#1f7a4a', '#f2c230', '#12305e', '#c8102e', '#f4f4f0', '#f2c230'][i], roughness: 0.8, side: THREE.DoubleSide }), time, wind, { amp: 0.035, freq: 5.5, heightExpr: '(uv.x * 2.2)', scale: 3.0 });
+      const fl = new THREE.Mesh(flagG, fm); fl.rotation.set(Math.PI / 2, 0, 0); fl.rotateY(-wdir); fl.position.set(px, py, 4.45); fl.castShadow = true; scene.add(fl);
     }
     // Biruta.
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 4, 8), metal); pole.rotation.x = Math.PI / 2; pole.position.set(20, -16, 2); pole.castShadow = true; scene.add(pole);

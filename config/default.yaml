@@ -33,7 +33,7 @@ environment:
   sun_intensity: 4.6       # modo real: irradiância do sol direto, na mesma escala do HDRI (medida no arquivo)
   ibl_intensity: 1.0
   grass_3d: true
-  grass_density_per_m2: 45
+  grass_density_per_m2: 55  # touceiras por m² junto à pista (cada uma com 10 lâminas); reduza em máquinas sem GPU
   wind:
     speed_ms: 3.0          # vento médio
     direction_deg: 180     # para onde o vento SOPRA: 180 = contra a decolagem (vento de proa)
@@ -115,6 +115,8 @@ camera_defaults:
   noise_sigma: 0.012        # ruído do sensor (fração do fundo de escala)
   chromatic_aberration: 0.0012   # aberração cromática lateral (fração do raio)
   vignette: 0.55            # escurecimento nos cantos
+  bloom: 0.15               # brilho difuso da lente em torno de áreas estouradas (0 = desligado)
+  saturation: 1.0
   record_window_s: [-0.9, 0.5]   # janela gravada, relativa ao instante em que o CG cruza o obstáculo
   jpeg_quality: 0.93
   vibration:

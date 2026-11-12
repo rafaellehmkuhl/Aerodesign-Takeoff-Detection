@@ -115,7 +115,8 @@ function filmMaterial(src) {
   m.onBeforeCompile = (sh) => {
     sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
       float fres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 2.5);
-      float filmA = mix(0.10, 0.55, fres) + dot(totalSpecular, vec3(0.3333));
+      float filmA = mix(0.10, 0.55, fres) + min(dot(totalSpecular, vec3(0.3333)), 1.0);
+      outgoingLight = min(outgoingLight, vec3(40.0));
       gl_FragColor = vec4(outgoingLight, clamp(filmA, 0.0, 1.0));`);
   };
   return m;
@@ -143,7 +144,11 @@ async function buildFromGLB(a, baseUrl) {
     if (mat && /film|filme/i.test(mat.name)) {
       if (!films.has(mat)) films.set(mat, filmMaterial(mat));
       n.material = films.get(mat); n.castShadow = false; n.renderOrder = 2; n.userData.film = true;
-    } else if (mat) mat.envMapIntensity = 1.0;
+    } else if (mat) {
+      mat.envMapIntensity = 1.0;
+      // Metal polido em tubos finos estoura em branco puro (reflexo do sol sem área): trata como alumínio escovado.
+      if (mat.metalness > 0.5 && !mat.userData.tuned) { mat.roughness = Math.max(mat.roughness, 0.55); mat.metalness = 0.7; mat.color.multiplyScalar(0.55); mat.userData.tuned = true; }
+    }
     if (/^(helice|propeller|prop)\b/.test(name)) prop = n;
   });
   if (prop) {
