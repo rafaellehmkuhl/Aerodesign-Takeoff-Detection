@@ -1,0 +1,169 @@
+# Configuração padrão do simulador. Qualquer cenário em scenarios/*.yaml sobrescreve
+# apenas as chaves que declarar (merge profundo; listas são substituídas por inteiro,
+# exceto `cameras`, que é mesclada por `name`).
+#
+# Sistema de coordenadas do mundo: x ao longo da pista (linha de largada em x=0),
+# y para a esquerda de quem decola, z para cima. Unidades SI (m, s, kg), ângulos em graus.
+
+seed: 1
+
+runway:
+  length_m: 50.0          # distância da largada até o obstáculo
+  width_m: 8.0
+  overrun_m: 70.0         # asfalto depois do obstáculo
+
+obstacle:
+  height_m: 0.70          # altura da "faixa" (real ou virtual)  -- CONFERIR NO REGULAMENTO VIGENTE
+  width_m: 6.0            # distância entre os postes
+  posts: true             # desenhar os postes
+  post_height_m: 0.30     # altura dos postes quando não há faixa física. Postes da altura da faixa TAPAM a
+                          # visada da câmera de linha no ponto de medição (ver scenarios/postes_altos.yaml)
+  tape: false             # desenhar a faixa física (o objetivo do sistema é aboli-la)
+  tape_bow_m_per_ms: 0.02 # quanto a faixa embarriga por m/s de vento (só visual)
+  backdrop: false         # painel de contraste do lado oposto à câmera de linha
+  backdrop_color: "#2b6cff"
+
+environment:
+  sun_elevation_deg: 48
+  sun_azimuth_deg: 215     # de onde vem o sol (0 = +x, 90 = +y)
+  turbidity: 4
+  wind:
+    speed_ms: 3.0          # vento médio
+    direction_deg: 180     # para onde o vento SOPRA: 180 = contra a decolagem (vento de proa)
+    turbulence: 0.15       # intensidade de rajada (fração do vento médio)
+  scenery: true            # árvores, tendas, mastros das câmeras
+
+aircraft:
+  # Geometria paramétrica (asa alta, trem triciclo), típica da classe Regular.
+  model: parametric        # ou caminho para um .glb (ver README)
+  model_scale: 1.0
+  model_rotation_deg: [0, 0, 0]
+  wingspan_m: 2.20
+  chord_m: 0.42
+  wing_z_m: 0.16           # altura da asa acima do CG
+  fuselage_length_m: 0.75
+  fuselage_width_m: 0.20
+  fuselage_height_m: 0.22
+  tail_arm_m: 1.05         # CG até a empenagem
+  htail_span_m: 0.75
+  htail_chord_m: 0.24
+  vtail_height_m: 0.32
+  gear_height_m: 0.24      # CG até a base das rodas
+  main_gear_x_m: -0.06     # trem principal, atrás do CG
+  nose_gear_x_m: 0.38
+  gear_track_m: 0.46
+  wheel_diameter_m: 0.075
+  prop_diameter_m: 0.36
+  prop_rpm: 9000
+  colors: { wing: "#f4f1e8", wing_tip: "#d6202a", fuselage: "#d6202a", tail: "#f4f1e8", accent: "#1c2a4a" }
+  # Marcadores ArUco (DICT_4X4_50) colados no extradorso da asa.
+  # position: [x, y] no referencial do corpo (x para frente, y para a esquerda), em metros.
+  markers:
+    - { id: 0, size_m: 0.25, position: [-0.075, 0.94] }
+    - { id: 1, size_m: 0.25, position: [-0.075, -0.94] }
+  marker_margin: 0.12      # borda branca ao redor do marcador (fração do tamanho)
+
+dynamics:
+  mass_kg: 12.5            # massa total (vazio + carga)
+  wing_area_m2: null       # null = envergadura * corda
+  cl_max: 1.90
+  cl_ground: 0.55          # CL na atitude de corrida
+  cl_alpha_per_rad: 4.4
+  cd0: 0.055
+  induced_k: 0.075
+  static_thrust_n: 40.0
+  thrust_zero_speed_ms: 32.0
+  rolling_friction: 0.04
+  rotate_speed_factor: 1.08   # Vr = fator * Vestol
+  rotate_at_x_m: null         # se definido, força a rotação nesse ponto da pista
+  pitch_rate_deg_s: 28
+  alpha_rotate_deg: 11        # ângulo de ataque máximo na rotação/subida
+  climb_angle_deg: 6          # ângulo de subida que o piloto busca depois de sair do chão
+  lateral_sigma_m: 0.25       # desvio lateral típico durante a corrida/voo
+  lateral_offset_m: 0.0
+  roll_sigma_deg: 2.0         # oscilação de rolamento em voo
+  yaw_sigma_deg: 1.5
+  # Se definido, a massa é ajustada automaticamente (bisseção) para que a folga REAL
+  # sobre o obstáculo seja esta. Ótimo para testar casos-limite (ex.: +0.02, -0.02).
+  target_clearance_m: null
+  extra_time_s: 1.6           # quanto simular depois de cruzar o obstáculo
+
+# ---------------------------------------------------------------------------------
+# Câmeras. Cada câmera tem a pose REAL (position/look_at) e os erros de calibração,
+# que definem a pose em que os algoritmos ACREDITAM. Vibração é somada à pose real.
+# ---------------------------------------------------------------------------------
+camera_defaults:
+  role: tracking            # line | tracking
+  resolution: [1920, 1080]
+  hfov_deg: 60
+  fps: 120
+  exposure_s: 0.0005        # tempo de exposição (gera motion blur)
+  blur_samples: auto        # sub-amostras por quadro para o motion blur (auto = conforme o borrão em pixels)
+  roll_deg: 0
+  distortion: { k1: -0.06, k2: 0.01 }       # lente real (modelo radial OpenCV)
+  noise_sigma: 0.012        # ruído do sensor (fração do fundo de escala)
+  record_window_s: [-0.9, 0.5]   # janela gravada, relativa ao instante em que o CG cruza o obstáculo
+  jpeg_quality: 0.93
+  vibration:
+    rms_deg: 0.010          # vibração de alta frequência (rms por eixo)
+    band_hz: [12, 45]
+    sway_deg_per_ms: 0.006  # balanço lento do mastro por m/s de vento
+    sway_hz: 1.3
+  calibration_error:
+    position_sigma_m: 0.01  # erro aleatório (1 sigma) da posição calibrada
+    rotation_sigma_deg: 0.03
+    focal_sigma_pct: 0.15
+    distortion_sigma: 0.003
+    position_m: [0, 0, 0]   # erro determinístico adicional
+    rotation_deg: [0, 0, 0] # (em torno dos eixos x-direita, y-baixo, z-frente da câmera)
+  mast: true                # desenhar o mastro/tripé na cena
+
+cameras:
+  # Câmera de linha: alta velocidade, na altura da faixa, olhando ao longo dela.
+  - name: linecam
+    role: line
+    position: [50.0, -9.0, 0.70]
+    look_at: [50.0, 0.0, 0.70]
+    resolution: [1280, 720]
+    hfov_deg: 24
+    fps: 240
+    exposure_s: 0.00025
+    record_window_s: [-0.45, 0.35]
+  # Três câmeras de rastreamento em mastros, fora da pista, olhando de cima para a zona do obstáculo.
+  - name: track_a
+    position: [42.5, -9.0, 6.0]
+    look_at: [48.8, 0.0, 1.0]
+    hfov_deg: 42
+  - name: track_b
+    position: [42.5, 9.0, 6.0]
+    look_at: [48.8, 0.0, 1.0]
+    hfov_deg: 42
+  - name: track_c
+    position: [55.0, -9.0, 6.0]
+    look_at: [48.8, 0.0, 1.0]
+    hfov_deg: 42
+
+# Câmera "de TV" que segue a aeronave (só para o vídeo final; sem erros).
+chase:
+  resolution: [1280, 720]
+  hfov_deg: 38
+
+algorithms:
+  linecam:
+    assumed_y_m: 0.0          # profundidade assumida (eixo da pista) para converter pixel -> altura
+    diff_threshold: 0.075
+    shadow_suppression: true
+    min_run_m: 0.016          # menor trecho vertical contínuo aceito como parte da aeronave
+  markerless:
+    diff_threshold: 0.07
+    contour_points: 140
+    max_nfev: 28
+  aruco:
+    min_corners: 8            # com um único marcador numa única câmera a pose é ambígua/ruidosa: exige 2 marcadores-vista
+  smoothing_window_s: 0.20    # meia-janela do ajuste polinomial local da trajetória
+
+output:
+  fps: 30
+  resolution: [1920, 1080]
+  slowmo_factor: 0.08         # velocidade do replay na janela das câmeras rápidas
+  hold_end_s: 3.0

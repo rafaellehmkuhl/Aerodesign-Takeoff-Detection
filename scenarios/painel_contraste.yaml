@@ -1,0 +1,6 @@
+# Como limite_falha (-2 cm), mas com um painel de contraste atrás do obstáculo, no campo da câmera de linha.
+extends: rapido.yaml
+obstacle:
+  backdrop: true
+dynamics:
+  target_clearance_m: -0.02

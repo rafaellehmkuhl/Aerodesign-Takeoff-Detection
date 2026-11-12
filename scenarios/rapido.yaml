@@ -1,0 +1,7 @@
+# Cenário leve para iterar rápido (render em CPU): rastreamento a 60 fps e janelas curtas.
+camera_defaults:
+  fps: 60
+  record_window_s: [-0.55, 0.3]
+cameras:
+  - name: linecam
+    record_window_s: [-0.25, 0.2]

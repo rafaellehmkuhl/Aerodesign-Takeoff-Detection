@@ -1,0 +1,11 @@
+# Câmera de linha mal alinhada: 3 cm abaixo da altura da faixa e 0,4 graus de erro de apontamento
+# que a calibração NÃO conhece (o algoritmo acredita que está alinhada).
+extends: rapido.yaml
+dynamics:
+  target_clearance_m: 0.03
+  lateral_offset_m: 1.0
+cameras:
+  - name: linecam
+    calibration_error:
+      position_m: [0, 0, 0.03]
+      rotation_deg: [0.4, 0.4, 0]

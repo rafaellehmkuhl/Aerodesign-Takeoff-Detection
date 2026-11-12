@@ -1,0 +1,3 @@
+# Cenário padrão em qualidade cheia: usa tudo de config/default.yaml
+# (câmera de linha 720p @ 240 fps + 3 câmeras de rastreamento 1080p @ 120 fps).
+{}

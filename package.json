@@ -1,0 +1,15 @@
+{
+  "name": "aerodesign-takeoff-sim",
+  "version": "0.1.0",
+  "description": "Simulador e bancada de validação de sistemas de detecção de decolagem para AeroDesign",
+  "scripts": {
+    "ui": "node sim/server.mjs",
+    "render": "node sim/render.mjs"
+  },
+  "dependencies": {
+    "lil-gui": "^0.21.0",
+    "three": "^0.170.0",
+    "yaml": "^2.9.1"
+  },
+  "private": true
+}

@@ -1,0 +1,4 @@
+# Caso-limite: a aeronave passa 2 cm ACIMA do obstáculo (a massa é ajustada para isso).
+extends: rapido.yaml
+dynamics:
+  target_clearance_m: 0.02

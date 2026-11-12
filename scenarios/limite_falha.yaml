@@ -1,0 +1,4 @@
+# Caso-limite: o trem de pouso passa 2 cm ABAIXO da altura do obstáculo.
+extends: rapido.yaml
+dynamics:
+  target_clearance_m: -0.02

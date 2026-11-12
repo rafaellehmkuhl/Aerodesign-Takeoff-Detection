@@ -1,0 +1,11 @@
+# Vento forte de proa/través com rajadas: mastros balançando e aeronave oscilando.
+extends: rapido.yaml
+seed: 7
+environment:
+  wind: { speed_ms: 7.0, direction_deg: 150, turbulence: 0.3 }
+dynamics:
+  target_clearance_m: 0.05
+  roll_sigma_deg: 5
+  lateral_sigma_m: 0.6
+camera_defaults:
+  vibration: { rms_deg: 0.03, sway_deg_per_ms: 0.012 }
