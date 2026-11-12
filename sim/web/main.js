@@ -130,10 +130,17 @@ buildGui();
 await rebuild();
 
 // ------------------------------------------------------------------ laço
-let last = performance.now(), rr = 0;
+let last = performance.now(), rr = 0, fpsAvg = 0;
+{
+  // Mostra qual GPU está renderizando (se aparecer SwiftShader/llvmpipe, é render por software: não é tempo real).
+  const gl = cameraRenderer.renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
+  const name = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : 'GPU desconhecida';
+  $('sGpu').textContent = /swiftshader|llvmpipe|software/i.test(name) ? 'render por SOFTWARE (sem GPU)' : name.replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 60);
+}
 function blit(ctx, cv) { ctx.drawImage(glCanvas, 0, 0, cv.width, cv.height); }
 function frame(now) {
-  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  const raw = (now - last) / 1000, dt = Math.min(raw, 0.1); last = now;
+  if (raw > 0) { fpsAvg = fpsAvg ? 0.9 * fpsAvg + 0.1 / raw : 1 / raw; $('sFps').textContent = fpsAvg.toFixed(fpsAvg < 10 ? 1 : 0); }
   if (sim && $('busy').style.display === 'none') {
     if (state.playing) { state.t += dt * state.speed; if (state.t > sim.tEnd) state.t = Math.max(0, sim.tCross - 2.5); }
     const p = sim.poseAt(state.t);
