@@ -28,7 +28,7 @@ abaixo da altura da faixa.
 Requisitos: Node ≥ 20, Python ≥ 3.10, ffmpeg e um Chromium que o Playwright encontre.
 
 ```bash
-cd aerodesign-takeoff-sim
+cd Aerodesign-Takeoff-Detection
 npm install
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 npm install playwright && npx playwright install chromium   # só se ainda não houver Playwright/Chromium
