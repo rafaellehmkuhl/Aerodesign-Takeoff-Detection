@@ -1,0 +1,4 @@
+# Relatório: decolagem inválida (a aeronave passa 3 cm abaixo da fita).
+extends: relatorio_final.yaml
+dynamics:
+  target_clearance_m: -0.03

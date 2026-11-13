@@ -34,7 +34,7 @@ def save(fig, name):
 
 
 # ---------------------------------------------------------------- erro de folga por simulação
-runs = [("sjc", "Cenário final"), ("regulamento2026", "Obstáculo 2026"), ("montagem_adesivo", "Câmeras dos\ndois lados"), ("api_teste", "Decolagem\ninválida")]
+runs = [("relatorio_final", "Cenário final"), ("relatorio_fita_deitada", "Fita deitada"), ("relatorio_dois_lados", "Câmera do\noutro lado"), ("relatorio_invalida", "Decolagem\ninválida")]
 algs = [("linecam_band", "Câmera de linha · banda", C["band"]), ("linecam_column", "Câmera de linha · coluna", C["col"]),
         ("aruco", "3 câmeras + ArUco", C["aruco"]), ("markerless", "3 câmeras sem marcador", C["ml"])]
 fig, ax = plt.subplots(figsize=(6.2, 2.9))
@@ -48,13 +48,18 @@ for j, (k, lab, col) in enumerate(algs):
             ax.text(x, 1.5, "sem\ndados", ha="center", va="bottom", fontsize=6.5, color=C["aruco"], linespacing=0.95)
             continue
         ax.bar(x, e * 1000, w * 0.92, color=col, label=lab if i == 0 else None)
-        ax.text(x, e * 1000 + 1, f"{e*1000:.0f}", ha="center", va="bottom", fontsize=7, color=INK)
-ax.set_xticks(range(len(runs)), [f"{n}\n" + ("folga real " + ("−3,0" if r == "api_teste" else "+2,1" if r == "montagem_adesivo" else "+2,0") + " cm") for r, n in runs], fontsize=8)
+        ok = a.get("correct")
+        lbl = f"{e*1000:+.0f}".replace("-", "−") + ("" if ok else " ✗")
+        ax.text(x, e * 1000 + (1 if e >= 0 else -1), lbl, ha="center", va="bottom" if e >= 0 else "top", fontsize=7, color=INK if ok else C["tape"])
+def truth_cm(r):
+    g = json.load(open(os.path.join(ROOT, "runs", r, "results.json")))["ground_truth"]["clearance_m"] * 100
+    return f"{g:+.1f}".replace("-", "−").replace(".", ",")
+ax.set_xticks(range(len(runs)), [f"{n}\nfolga real {truth_cm(r)} cm" for r, n in runs], fontsize=8)
 ax.tick_params(axis="x", colors=INK)
 ax.set_ylabel("erro na folga medida (mm)")
-ax.set_ylim(0, 58)
+ax.set_ylim(-32, 62); ax.axhline(0, color=MUTED, lw=0.6)
 ax.bar([0], [0], 0, color=C["aruco"], label="3 câmeras + ArUco")
-ax.legend(ncol=4, loc="upper center", bbox_to_anchor=(0.5, -0.3), fontsize=7.3, handlelength=0.9, columnspacing=1.0)
+ax.legend(ncol=4, loc="upper center", bbox_to_anchor=(0.5, -0.24), fontsize=7.3, handlelength=0.9, columnspacing=1.0)
 save(fig, "grafico_erros.png")
 
 # ---------------------------------------------------------------- versão anterior (marcador plano)
@@ -78,7 +83,7 @@ ax.legend(ncol=4, loc="upper center", bbox_to_anchor=(0.5, -0.16), fontsize=7.3,
 save(fig, "grafico_versao_anterior.png")
 
 # ---------------------------------------------------------------- trajetória do ponto mais baixo
-run = os.path.join(ROOT, "runs", "sjc")
+run = os.path.join(ROOT, "runs", "relatorio_final")
 scene = json.load(open(os.path.join(run, "scene.json")))
 P = np.array(scene["aircraft"].get("collision_points", scene["aircraft"]["vertices"]), float).reshape(-1, 3)
 gt = json.load(open(os.path.join(run, "ground_truth.json")))

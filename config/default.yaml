@@ -196,7 +196,7 @@ algorithms:
     shadow_suppression: true
     min_run_m: 0.016          # menor trecho vertical contínuo aceito como parte da aeronave
   markerless:
-    diff_threshold: 0.07
+    diff_threshold: 0.035     # baixo: aeronave clara sobre concreto claro difere pouco do fundo (0,07 perdia metade da silhueta)
     contour_points: 140
     max_nfev: 28
   aruco:

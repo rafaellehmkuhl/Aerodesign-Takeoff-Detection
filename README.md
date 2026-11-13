@@ -25,7 +25,14 @@ resultados e recomendações.
 A cena reproduz o local da competição em São José dos Campos a partir de fotos da transmissão: pista de
 concreto com juntas entre placas, campo aberto, instrumentos e torre de antena do aeroporto, capões de árvores
 e os prédios da cidade no horizonte. O céu e a luz vêm de uma imagem HDR real; concreto e grama são texturas
-escaneadas. Roda em tempo real no navegador (three.js/WebGL) — ~60 quadros/s numa câmera 1080p num Apple M3.
+escaneadas. O fundo distante (morros com mata, a cidade, casas e os cinturões de árvores) é modelado e renderizado
+no Blender/Cycles por `tools/bake_backdrop.py` e entra como um panorama de 360°; pista, obstáculo, torres e aeronave
+rodam em tempo real no navegador (three.js/WebGL) — ~60 quadros/s numa câmera 1080p num Apple M3.
+
+A aparência foi ajustada em nove rodadas de comparação com fotos da transmissão da competição, cada uma avaliada por
+um crítico independente (céu, luz, cores medidas nas fotos, fundo):
+
+![Foto real da competição, a cena antes e a cena agora, nos mesmos três pontos de vista](docs/img/antes_depois.jpg)
 
 <table>
 <tr>
@@ -107,15 +114,15 @@ aeronave: a decolagem é válida se **nenhum ponto da aeronave** cruza o plano d
 
 ## Resultados
 
-Quatro decolagens no limite, uma semente cada, no cenário atual (obstáculo 2026, quatro câmeras do mesmo
-lado). Erro = folga medida − folga real.
+Quatro decolagens no limite (`scenarios/relatorio_*.yaml`, uma semente), na cena atual. Erro = folga medida − folga
+real; ✘ = veredito errado.
 
 | Simulação | Folga real | Linha · banda | Linha · coluna | 3 câmeras + ArUco | 3 câmeras sem marcador |
 |---|---|---|---|---|---|
-| Cenário final (obstáculo, fita e tripé como nas fotos) | +2,0 cm | ✔ +34 mm | ✔ +38 mm | sem dados | ✔ +17 mm |
-| Obstáculo 2026 (fita deitada, câmera de linha mais longe) | +2,0 cm | ✔ +46 mm | ✔ +52 mm | sem dados | ✔ +17 mm |
-| Uma câmera do outro lado da pista (pista de 50 m, fita a 70 cm) | +2,1 cm | ✔ +31 mm | ✔ +37 mm | sem dados | ✔ +4 mm |
-| Decolagem inválida (cenário final) | −3,0 cm | ✔ +26 mm | ✔ +30 mm | sem dados | ✔ +18 mm |
+| Cenário final (obstáculo, fita e tripé como nas fotos) | +2,0 cm | ✔ +34 mm | ✔ +50 mm | sem dados | ✔ −11 mm |
+| Fita deitada (face listrada para cima) | +2,0 cm | ✔ +34 mm | ✔ +52 mm | sem dados | ✔ −10 mm |
+| Câmera de rastreamento B do outro lado da pista | +2,0 cm | ✔ +34 mm | ✔ +52 mm | sem dados | ✘ −20 mm |
+| Decolagem inválida (3 cm abaixo da fita) | −3,0 cm | ✘ +36 mm | ✘ +44 mm | sem dados | ✔ −10 mm |
 
 ![Erro na folga medida por algoritmo e simulação](docs/img/grafico_erros.png)
 
@@ -123,29 +130,28 @@ lado). Erro = folga medida − folga real.
 
 O que apareceu:
 
-1. **O rastreamento sem marcador foi o mais preciso**: erro de folga de 4 a 18 mm e veredito certo em todos
-   os casos. A pose saiu em 44–47 de 51 quadros, com erro de posição mediano de 15 mm com uma câmera do
-   outro lado da pista e de ~40 mm com todas do mesmo lado — **a geometria das câmeras importa**.
-2. **A câmera de linha superestima a folga em 3 a 5 cm.** Acertou os vereditos, mas na decolagem inválida
-   mediu −0,4 cm para −3,0 cm reais: ficou a 4 mm de aprovar uma decolagem que bateu na fita. As causas:
-   - o erro de calibração de altura e apontamento entra 1:1 na medida (numa semente, 1,4 cm na altura da
-     câmera deslocou a fita "acreditada" 5,7 px, ~17 mm);
-   - paralaxe quando a aeronave não passa no eixo da pista;
-   - a haste e a fita torcida ficam bem na frente da coluna de medição (por isso a câmera fica 25 cm acima
-     da fita) e podem esconder uma roda que passe logo abaixo;
-   - no modo `coluna`, o pneu escuro na frente da grama e das árvores some na segmentação; um painel de
-     contraste atrás do obstáculo (`scenarios/painel_contraste.yaml`) resolveu nos testes.
-3. **ArUco colado na asa não funcionou.** Um marcador de 25 cm — o mínimo para decodificar a ~11 m em 1080p
-   com 42° de campo — cobre metade da corda desta asa, e o extradorso sobe ~50 mm debaixo dele. O detector do
-   OpenCV supõe um marcador plano: acha o quadrado preto, mas os cantos saem ~1 px fora e a leitura dos bits
-   falha (os bits são legíveis quando amostrados nos cantos verdadeiros). Também não funcionaram: 15–20 cm, a
-   parte mais plana da asa, margem branca maior, acabamento fosco e os refinamentos *contour* e *AprilTag* —
-   no máximo 2 de 6 detecções, contra 4–6 do mesmo marcador plano.
-4. **Estabilização e sombras importam para todos**: registrar cada quadro ao fundo (tira a vibração) e
-   descartar a sombra projetada derrubaram o erro do sem marcador de vários centímetros para milímetros.
+1. **O rastreamento sem marcador foi o mais preciso**: erro de folga de 10 a 20 mm e 3 de 4 vereditos certos (no
+   quarto mediu 0,0 cm para +2,0 cm). A pose saiu em 56–57 de 84 quadros, com erro de posição mediano de 67–81 mm.
+2. **A câmera de linha aprovou uma decolagem inválida**: mediu +0,6 cm para uma aeronave que passou 3 cm abaixo da
+   fita. Ela superestima a folga em 3,4 a 5 cm, sempre para cima. Com a mesma semente o viés foi idêntico (+34 mm) em
+   três simulações: vem da montagem (calibração de altura e apontamento), não da decolagem. Deitar a fita não mudou a
+   medida.
+3. **A cena realista revelou um problema de segmentação.** Aeronave creme sobre concreto quase branco difere pouco do
+   fundo: com os limiares antigos a máscara pegava só pedaços da aeronave e a asa era classificada como sombra; o erro de
+   posição saltou de ~40 para ~210 mm e o sem marcador errou os vereditos. Correção: só é sombra o que fica ≥ 20 %
+   mais escuro que o fundo (`Segmenter(shadow_max=0.8)`; sombra de sol direto fica 40–70 % mais escura) e o limiar de
+   diferença caiu para 0,035 (`algorithms.markerless.diff_threshold`). Esses limiares foram ajustados nessas mesmas
+   simulações.
+4. **ArUco colado na asa não funcionou.** Um marcador de 25 cm — o mínimo para decodificar a ~11 m em 1080p com 42° de
+   campo — cobre metade da corda desta asa, e o extradorso sobe ~50 mm debaixo dele. O detector do OpenCV supõe um
+   marcador plano: acha o quadrado preto, mas os cantos saem ~1 px fora e a leitura dos bits falha (os bits são legíveis
+   quando amostrados nos cantos verdadeiros). Também não funcionaram: 15–20 cm, a parte mais plana da asa, margem branca
+   maior, acabamento fosco e os refinamentos *contour* e *AprilTag*.
+5. **Câmera do outro lado da pista**: numa versão anterior da cena ela reduziu o erro de posição de 40 para 15 mm; na
+   cena atual não (81 mm). Com uma semente, é inconclusivo.
 
 <details>
-<summary>Versão anterior, com o ArUco como placa plana (pista de 50 m, fita a 70 cm)</summary>
+<summary>Versão anterior da cena, com o ArUco como placa plana (pista de 50 m, fita a 70 cm)</summary>
 
 | Folga real | Linha · banda | Linha · coluna | 3 câmeras + ArUco | 3 câmeras sem marcador |
 |---|---|---|---|---|
@@ -177,7 +183,8 @@ python3 tools/fetch_assets.py          # ~60 MB de assets CC0 do Poly Haven (cé
 # o render headless usa o Chromium do Playwright (npx playwright install chromium) ou, sem ele, o Chrome instalado
 
 npm run ui                             # interface interativa em http://127.0.0.1:5173
-SIM_GPU=1 ./run.py scenarios/limite_passa.yaml   # simulação completa com GPU: 4–8 min; gera runs/limite_passa/
+SIM_GPU=1 ./run.py scenarios/relatorio_final.yaml   # simulação completa com GPU: ~4 min; gera runs/relatorio_final/
+/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup -P tools/bake_backdrop.py   # refaz o fundo (~3 min; opcional, o arquivo já vem no repositório)
 ```
 
 Sem GPU o render roda em software (SwiftShader), a ~3–5 s por quadro 1080p no cenário realista
@@ -239,8 +246,9 @@ herdar de outro com `extends:`. Os principais grupos:
   fica ligada por padrão (`obstacle.tape`), cai `tape_sag_m` no meio do vão, torce `tape_twist_deg` e
   embarriga com o vento; a validação mede contra o plano do obstáculo na altura nominal. Painel de contraste
   opcional.
-- `environment` — sol, vento médio/direção/rajada, qualidade da cena (`real` ou `basic`), pavimento
-  (`concreto` ou `asfalto`) e névoa. A grama fica parada por padrão (`grass_wind`); as árvores balançam com o vento.
+- `environment` — céu (`sky_hdri`), sol (intensidade medida no próprio HDRI, `sun_scale`), luz do céu, exposição,
+  névoa, vento médio/direção/rajada, qualidade da cena (`real` ou `basic`), pavimento (`concreto` ou `asfalto`) e o
+  fundo pré-renderizado (`backdrop`; sem o arquivo, volta ao fundo procedural).
 - `aircraft` — geometria paramétrica (envergadura, corda, fuselagem, trem, cores…) **ou** um modelo
   `.glb` (`model: /models/meu_aviao.glb`, com `model_scale`/`model_rotation_deg`; coloque o arquivo em
   `models/`). `markers` define quantos ArUcos, de que tamanho e onde na asa;
@@ -260,7 +268,7 @@ herdar de outro com `extends:`. Os principais grupos:
 
 Cenários prontos em `scenarios/`: `padrao`, `rapido`, `limite_passa` (+2 cm), `limite_falha` (−2 cm),
 `vento_forte`, `linecam_desalinhada`, `painel_contraste`, `regular_parametrica` (aeronave paramétrica da
-classe Regular).
+classe Regular) e os quatro `relatorio_*` dos resultados acima.
 
 ### Usar outra aeronave
 
@@ -380,7 +388,6 @@ centenas de pixels), rápido, ao ar livre, sem profundidade, mas com **modelo 3D
   exposição/ganho automáticos, chuva/poeira, pessoas e veículos no fundo, flexão da asa e o
   **procedimento de calibração em si** (o erro de calibração é imposto, não resultado de um processo com
   pontos de controle).
-- **Realismo visual**: céu, luz, concreto e grama vêm de material escaneado e a aeronave é o modelo real,
-  mas é rasterização em tempo real, não path tracing: sem iluminação global nem reflexos reais; árvores,
-  prédios, instrumentos do aeroporto e torres são procedurais.
+- **Realismo visual**: o fundo distante é renderizado no Cycles, mas perto da câmera é rasterização em tempo real:
+  o concreto não tem rachaduras nem mato nas juntas, e tripé, guarda-sol, fita e torres são modelos simples.
 - O algoritmo sem marcador é um baseline clássico; os métodos de ponta listados acima não foram integrados.

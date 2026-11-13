@@ -1,0 +1,4 @@
+# Relatório: fita com a face listrada para cima (deitada) em vez de quase em pé, como nas fotos.
+extends: relatorio_final.yaml
+obstacle:
+  tape_tilt_deg: 0

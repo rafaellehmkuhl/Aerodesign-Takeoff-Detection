@@ -1,0 +1,5 @@
+# Relatório: a câmera de rastreamento B vai para o outro lado da pista (geometria de triangulação melhor).
+extends: relatorio_final.yaml
+cameras:
+  - name: track_b
+    position: [53, 12, 8]

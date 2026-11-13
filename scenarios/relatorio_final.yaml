@@ -1,0 +1,11 @@
+# Cenário do relatório: configuração padrão (obstáculo 2026, quatro câmeras do mesmo lado), decolagem no limite (+2 cm).
+# As câmeras de rastreamento gravam a 60 quadros/s para o render ficar mais rápido.
+dynamics:
+  target_clearance_m: 0.02
+cameras:
+  - name: track_a
+    fps: 60
+  - name: track_b
+    fps: 60
+  - name: track_c
+    fps: 60

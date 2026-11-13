@@ -106,9 +106,12 @@ class Segmenter:
     cada quadro é registrado ao fundo (translação sub-pixel por correlação de fase) e o limiar
     cresce onde o fundo tem bordas fortes. Sombras projetadas (mais escuras, mesma cor) são removidas."""
 
-    def __init__(self, frames, thr=0.07, shadows=True, stabilize=True, edge_gain=1.2, cam=None, shadow_range_m=60.0):
+    def __init__(self, frames, thr=0.07, shadows=True, stabilize=True, edge_gain=1.2, cam=None, shadow_range_m=60.0, shadow_max=0.8):
         self.bg = background(frames)
-        self.thr, self.shadows, self.stabilize = thr, shadows, stabilize
+        # Sombra: pixel mais escuro que o fundo por um fator de no máximo shadow_max, com o mesmo tom. Com sol
+        # direto as sombras ficam bem mais escuras (razão ~0,3–0,6); 0,8 evita confundir peças claras da aeronave
+        # sobre concreto claro (só um pouco mais escuras que o fundo) com sombra.
+        self.thr, self.shadows, self.stabilize, self.shadow_max = thr, shadows, stabilize, shadow_max
         # Sombra só pode cair no chão próximo: acima do horizonte (ou muito longe) nada é tratado como sombra.
         self.shadow_region = None
         if cam is not None and shadows:
@@ -152,7 +155,7 @@ class Segmenter:
             rmin, rmax = ratio.min(axis=2), ratio.max(axis=2)
             # Tolerância de cor maior onde o fundo é escuro (ruído/compressão dominam a razão).
             tol = 0.14 + 10.0 / (self.bg.mean(axis=2) + 8.0)
-            shadow = (rmax < 0.97) & (rmin > 0.08) & ((rmax - rmin) < tol)
+            shadow = (rmax < self.shadow_max) & (rmin > 0.08) & ((rmax - rmin) < tol)
             if self.shadow_region is not None:
                 shadow &= self.shadow_region
             mask &= ~shadow
