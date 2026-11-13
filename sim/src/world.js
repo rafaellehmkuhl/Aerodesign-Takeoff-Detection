@@ -45,33 +45,37 @@ export function buildObstacle(cfg) {
   const ob = cfg.obstacle, hw = ob.width_m / 2, h = ob.height_m;
   const obstacle = new THREE.Group();
   if (ob.posts) {
-    const conduit = new THREE.MeshStandardMaterial({ color: '#b9bec4', metalness: 0.75, roughness: 0.4 });   // eletroduto galvanizado
-    const steel = new THREE.MeshStandardMaterial({ color: '#5d6166', metalness: 0.8, roughness: 0.55 });
-    const r = (ob.post_diameter_m ?? 0.032) / 2, b = ob.post_base_m ?? 0.3;
+    // Haste: tubo de aço pintado de preto sobre uma base retangular pesada, com o prendedor branco da fita no topo.
+    const paint = new THREE.MeshStandardMaterial({ color: ob.post_color ?? '#141516', metalness: 0.3, roughness: 0.5 });
+    const clipM = new THREE.MeshStandardMaterial({ color: '#f1f1ee', roughness: 0.6 });
+    const r = (ob.post_diameter_m ?? 0.025) / 2, [bx, by, bz] = ob.post_base_m ?? [0.42, 0.26, 0.05];
     for (const s of [-1, 1]) {
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(b, b, 0.006), steel); plate.position.set(L, s * hw, 0.003);
-      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 20), conduit); pipe.rotation.x = Math.PI / 2; pipe.position.set(L, s * hw, h / 2 + 0.006);
-      const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.6, r * 1.6, 0.08, 20), steel); sleeve.rotation.x = Math.PI / 2; sleeve.position.set(L, s * hw, 0.046);   // luva soldada na chapa
-      const cap = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.15, r * 1.15, 0.02, 20), steel); cap.rotation.x = Math.PI / 2; cap.position.set(L, s * hw, h + 0.006);   // conector da fita
-      for (const m of [plate, pipe, sleeve, cap]) { m.castShadow = true; m.receiveShadow = true; obstacle.add(m); }
+      const base = new THREE.Mesh(new THREE.BoxGeometry(bx, by, bz), paint); base.position.set(L, s * hw, bz / 2);
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h + 0.04 - bz, 16), paint); pipe.rotation.x = Math.PI / 2; pipe.position.set(L, s * hw, bz + (h + 0.04 - bz) / 2);
+      const clip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.03, 0.09), clipM); clip.position.set(L, s * hw - s * 0.012, h);
+      for (const m of [base, pipe, clip]) { m.castShadow = true; m.receiveShadow = true; obstacle.add(m); }
     }
   }
   if (ob.tape) {
-    // Fita deitada (face para cima), com flecha no meio do vão e barriga horizontal com o vento.
-    const wind = env.wind, toward = Math.cos(deg(wind.direction_deg));   // componente do vento ao longo de x
+    // Fita zebrada: face listrada para cima (regulamento), mas torcendo ao longo do vão como em campo;
+    // flecha no meio e barriga horizontal com o vento.
+    const wind = env.wind, toward = Math.cos(deg(wind.direction_deg));
     const bow = (ob.tape_bow_m_per_ms ?? 0) * wind.speed_ms * toward, sag = ob.tape_sag_m ?? 0, tw = (ob.tape_width_m ?? 0.07) / 2;
-    const n = 64, pos = [], uv = [], idx = [];
+    const twist = deg(ob.tape_twist_deg ?? 0), ph = (cfg.seed ?? 1) * 1.7;
+    const n = 160, pos = [], uv = [], idx = [];
     for (let i = 0; i <= n; i++) {
       const s = i / n, y = -hw + 2 * hw * s, k = 4 * s * (1 - s);
       const x = L + bow * k, z = h - sag * k;
-      pos.push(x - tw, y, z, x + tw, y, z); uv.push(0, (s * ob.width_m) / 0.25, 1, (s * ob.width_m) / 0.25);
-      if (i) { const a = 2 * i; idx.push(a - 2, a, a - 1, a - 1, a, a + 1); }
+      const a = twist * (0.6 * Math.sin(s * 9.4 + ph) + 0.4 * Math.sin(s * 23.1 + 2 * ph)) * Math.min(1, 8 * Math.min(s, 1 - s));   // presa reta nas pontas
+      const dx = tw * Math.cos(a), dz = tw * Math.sin(a);
+      pos.push(x - dx, y, z - dz, x + dx, y, z + dz); uv.push(0, (s * ob.width_m) / 0.25, 1, (s * ob.width_m) / 0.25);
+      if (i) { const b = 2 * i; idx.push(b - 2, b, b - 1, b - 1, b, b + 1); }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setIndex(idx); geo.computeVertexNormals();
     const tex = zebraTexture(ob.tape_colors ?? ['#d61f1f', '#f2f2ee']); tex.rotation = Math.PI / 2; tex.center.set(0.5, 0.5);
-    const tape = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide, roughness: 0.45 }));
+    const tape = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide, roughness: 0.4 }));
     tape.castShadow = true; tape.receiveShadow = true; obstacle.add(tape);
   }
   if (ob.backdrop) {
@@ -183,7 +187,7 @@ export function buildWorld(cfg) {
 
 // Suporte da câmera. Acima de 2 m: torre de treliça de alumínio de seção quadrada (box truss de palco,
 // 29 cm, tubos de 48 mm com travessas e diagonais) sobre uma base de chapa; abaixo, um tripé.
-export function buildMast(position) {
+export function buildMast(position, { umbrella = false } = {}) {
   const g = new THREE.Group();
   const [x, y, z] = position;
   const alu = new THREE.MeshStandardMaterial({ color: '#c3c7cc', metalness: 0.85, roughness: 0.35 });
@@ -208,10 +212,19 @@ export function buildMast(position) {
     const base = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.01), dark); base.position.set(x, y, 0.005); base.receiveShadow = true; g.add(base);
     const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.012), alu); plate.position.set(x, y, top + 0.006); plate.castShadow = true; g.add(plate);
   } else {
-    bar(V(0, 0, 0), V(0, 0, top), 0.02, dark);
+    bar(V(0, 0, 0), V(0, 0, top), 0.012, dark);
     for (let i = 0; i < 3; i++) {
       const a = (i * 2 * Math.PI) / 3 + 0.5, len = Math.min(0.9, z);
-      bar(V(0, 0, len * 0.9), V(0.6 * len * Math.cos(a), 0.6 * len * Math.sin(a), 0), 0.012, dark);
+      bar(V(0, 0, len * 0.55), V(0.55 * len * Math.cos(a), 0.55 * len * Math.sin(a), 0), 0.008, dark);
+    }
+    // Guarda-sol colorido preso ao tripé, como na câmera de teste em campo.
+    if (umbrella) {
+      const H = z + 0.45, R = 0.5, cols = ['#d6262a', '#f0a51c', '#2bb04a', '#2a63c9', '#7a3bb5', '#e5d21e'];
+      bar(V(0.04, 0, 0.3), V(0.04, 0, H), 0.008, dark);
+      for (let k = 0; k < 6; k++) {
+        const seg = new THREE.Mesh(new THREE.ConeGeometry(R, 0.18, 10, 1, true, (k * Math.PI) / 3, Math.PI / 3), new THREE.MeshStandardMaterial({ color: cols[k], roughness: 0.8, side: THREE.DoubleSide }));
+        seg.rotation.x = Math.PI / 2; seg.position.set(x + 0.04, y, H); seg.castShadow = true; g.add(seg);
+      }
     }
   }
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.09), dark);

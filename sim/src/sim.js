@@ -69,7 +69,7 @@ export async function createSim(cfg, { canvas, cameraRenderer, baseUrl = locatio
     const blurPx = (poseAt(tCross).V * c.spec.exposure_s * c.fx) / dist;
     c.blurPx = blurPx;
     c.blurN = c.spec.blur_samples === 'auto' || c.spec.blur_samples == null ? Math.min(8, Math.max(1, Math.ceil(blurPx / 1.5))) : c.spec.blur_samples;
-    if (c.spec.mast && cfg.environment.scenery) scene.add(buildMast(c.spec.position));
+    if (c.spec.mast && cfg.environment.scenery) scene.add(buildMast(c.spec.position, { umbrella: !!c.spec.umbrella }));
   }
   const chase = idealCamera('chase', cfg.chase.resolution, cfg.chase.hfov_deg);
   const free = idealCamera('free', [1280, 720], 50);

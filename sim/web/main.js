@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createSim } from '/src/sim.js';
 import { CameraRenderer } from '/src/cameras.js';
+import { TABS, camFields } from '/params.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter((k) => k != null)); return e; };
@@ -11,11 +12,22 @@ const fmt = (v, d) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits:
 
 const glCanvas = $('gl'), view = $('view'), vctx = view.getContext('2d');
 const cameraRenderer = new CameraRenderer(glCanvas);
+// A configuração vive numa sessão no servidor, compartilhada com a API HTTP e o MCP: o que um agente muda
+// aparece aqui, e o que se muda aqui o agente vê.
+const CLIENT = `ui-${Math.random().toString(36).slice(2, 10)}`;
 const params = new URLSearchParams(location.search);
-let cfg = await (await fetch('/api/config' + (params.get('scenario') ? `?scenario=${params.get('scenario')}` : ''))).json();
-const defaults = structuredClone(cfg);
+const api = async (method, url, body) => {
+  const r = await fetch(url, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error ?? r.statusText), { details: j.details });
+  return j;
+};
+if (params.get('scenario')) await api('POST', '/api/session/scenario', { name: params.get('scenario'), source: CLIENT });
+let { cfg, defaults } = await api('GET', '/api/session');
+let synced = structuredClone(cfg);
 let sim = null, controls = null, selected = 'free', thumbs = {};
 let camIndex = 0, activeTab = 'cena';
+const queued = [];   // comandos externos à espera do fim de um recálculo
 const state = { t: 0, playing: true, speed: 1, loop: true, previews: true, frustums: true };
 
 // ------------------------------------------------------------------ caminhos no cenário
@@ -65,12 +77,30 @@ async function rebuild() {
     buildMarks();
     busy('');
     building = null;
-    if (pending) { pending = false; rebuild(); }
+    if (pending) { pending = false; rebuild(); return; }
+    while (queued.length) runCommand(queued.shift());
   })();
   return building;
 }
 const debounce = (fn, ms) => { let h; return () => { clearTimeout(h); h = setTimeout(fn, ms); }; };
-const apply = debounce(rebuild, 350);
+// Envia ao servidor só o que mudou desde a última sincronização (folhas do cenário).
+function leaves(o, pre = '', out = {}) {
+  if (o && typeof o === 'object' && !(Array.isArray(o) && o.every((v) => v === null || typeof v !== 'object'))) {
+    for (const [k, v] of Object.entries(o)) leaves(v, pre ? `${pre}.${k}` : k, out);
+  } else out[pre] = o;
+  return out;
+}
+async function pushChanges() {
+  const a = leaves(cfg), b = leaves(synced), changes = {};
+  for (const k of Object.keys(a)) if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) changes[k] = a[k];
+  if (!Object.keys(changes).length) return;
+  try { await api('PATCH', '/api/session', { changes, source: CLIENT }); synced = structuredClone(cfg); }
+  catch (e) {
+    busy(`Valor recusado: ${(e.details ?? []).map((d) => `${d.path} (${d.error})`).join('; ') || e.message}`);
+    ({ cfg, defaults } = await api('GET', '/api/session')); synced = structuredClone(cfg); renderPanels(); setTimeout(() => busy(''), 4000);
+  }
+}
+const apply = debounce(() => { pushChanges(); rebuild(); }, 350);
 
 // ------------------------------------------------------------------ player
 const SPEEDS = [0.05, 0.1, 0.25, 0.5, 1];
@@ -163,69 +193,6 @@ function buildStrip() {
 }
 
 // ------------------------------------------------------------------ painel de configuração
-// Cada campo aponta para um caminho no cenário. `scale` converte a unidade guardada para a exibida.
-const RESOLUTIONS = [[1280, 720], [1920, 1080], [2560, 1440], [3840, 2160]];
-const camFields = (i) => [
-  { group: 'Posição e mira', note: 'x ao longo da pista (largada em 0, obstáculo em 55), y para a esquerda, z para cima.', fields: [
-    { kind: 'vec3', path: `cameras.${i}.position`, label: 'Posição da câmera', unit: 'm', step: 0.05 },
-    { kind: 'vec3', path: `cameras.${i}.look_at`, label: 'Ponto para onde ela aponta', unit: 'm', step: 0.05 },
-  ] },
-  { group: 'Lente e sensor', fields: [
-    { kind: 'range', path: `cameras.${i}.hfov_deg`, label: 'Campo de visão horizontal', unit: '°', min: 5, max: 120, step: 1 },
-    { kind: 'select', path: `cameras.${i}.resolution`, label: 'Resolução', options: RESOLUTIONS.map((r) => [`${r[0]} × ${r[1]}`, r]) },
-    { kind: 'select', path: `cameras.${i}.fps`, label: 'Quadros por segundo', options: [30, 60, 120, 240, 480, 960].map((f) => [`${f} fps`, f]) },
-    { kind: 'range', path: `cameras.${i}.exposure_s`, label: 'Tempo de exposição', help: 'Mais tempo = mais borrão de movimento.', unit: 'ms', scale: 1000, min: 0.05, max: 10, step: 0.05, digits: 2 },
-    { kind: 'range', path: `cameras.${i}.noise_sigma`, label: 'Ruído do sensor', unit: '%', scale: 100, min: 0, max: 8, step: 0.1, digits: 1 },
-    { kind: 'range', path: `cameras.${i}.distortion.k1`, label: 'Distorção radial (k1)', help: 'Negativo = barril, positivo = almofada.', min: -0.4, max: 0.4, step: 0.005, digits: 3 },
-  ] },
-  { group: 'Imperfeições', fields: [
-    { kind: 'range', path: `cameras.${i}.vibration.rms_deg`, label: 'Vibração (rms)', unit: '°', min: 0, max: 0.3, step: 0.002, digits: 3 },
-    { kind: 'range', path: `cameras.${i}.vibration.sway_deg_per_ms`, label: 'Balanço do mastro com o vento', unit: '°/(m/s)', min: 0, max: 0.1, step: 0.001, digits: 3 },
-    { kind: 'range', path: `cameras.${i}.calibration_error.rotation_sigma_deg`, label: 'Erro de calibração · rotação (σ)', unit: '°', min: 0, max: 1, step: 0.005, digits: 3 },
-    { kind: 'range', path: `cameras.${i}.calibration_error.position_sigma_m`, label: 'Erro de calibração · posição (σ)', unit: 'cm', scale: 100, min: 0, max: 30, step: 0.1, digits: 1 },
-  ] },
-];
-const TABS = [
-  { id: 'cena', label: 'Cenário', groups: [
-    { group: 'Vento', fields: [
-      { kind: 'range', path: 'environment.wind.speed_ms', label: 'Velocidade média', unit: 'm/s', min: 0, max: 12, step: 0.1, digits: 1 },
-      { kind: 'range', path: 'environment.wind.direction_deg', label: 'Para onde sopra', help: '180° = de frente para a aeronave (vento de proa).', unit: '°', min: 0, max: 360, step: 5 },
-      { kind: 'range', path: 'environment.wind.turbulence', label: 'Rajadas', help: 'Variação em torno da média.', unit: '%', scale: 100, min: 0, max: 60, step: 1 },
-    ] },
-    { group: 'Sol', fields: [
-      { kind: 'range', path: 'environment.sun_azimuth_deg', label: 'Direção do sol', unit: '°', min: 0, max: 360, step: 5 },
-    ] },
-    { group: 'Obstáculo', fields: [
-      { kind: 'range', path: 'obstacle.height_m', label: 'Altura da fita', help: 'Regulamento 2026: 90 cm.', unit: 'cm', scale: 100, min: 30, max: 150, step: 1 },
-      { kind: 'switch', path: 'obstacle.tape', label: 'Fita zebrada entre as hastes' },
-      { kind: 'switch', path: 'obstacle.backdrop', label: 'Painel de contraste atrás do obstáculo' },
-    ] },
-    { group: 'Aleatoriedade', fields: [
-      { kind: 'range', path: 'seed', label: 'Semente', help: 'Muda rajadas, vibração e erros sorteados.', min: 1, max: 999, step: 1, shuffle: true },
-    ] },
-  ] },
-  { id: 'aero', label: 'Aeronave', groups: [
-    { group: 'Decolagem', fields: [
-      { kind: 'nullable', path: 'dynamics.target_clearance_m', label: 'Fixar a folga real', help: 'Ajusta a massa para a aeronave passar exatamente com esta folga.', unit: 'cm', scale: 100, min: -60, max: 150, step: 0.5, digits: 1, fallback: 0.05 },
-      { kind: 'range', path: 'dynamics.mass_kg', label: 'Massa total', unit: 'kg', min: 4, max: 30, step: 0.1, digits: 1 },
-      { kind: 'range', path: 'dynamics.static_thrust_n', label: 'Tração estática', unit: 'N', min: 15, max: 120, step: 1 },
-      { kind: 'range', path: 'dynamics.lateral_offset_m', label: 'Desvio lateral', unit: 'm', min: -2.5, max: 2.5, step: 0.05, digits: 2 },
-      { kind: 'range', path: 'dynamics.roll_sigma_deg', label: 'Rolamento em voo (σ)', unit: '°', min: 0, max: 10, step: 0.5, digits: 1 },
-    ] },
-    { group: 'Marcadores ArUco', fields: [
-      { kind: 'switch', path: 'aircraft.markers_enabled', label: 'Adesivos ArUco na asa' },
-      { kind: 'range', path: 'aircraft.marker_margin', label: 'Borda branca', help: 'Em relação ao tamanho do código.', unit: '%', scale: 100, min: 5, max: 30, step: 1 },
-    ] },
-  ] },
-  { id: 'cams', label: 'Câmeras', cameras: true },
-  { id: 'vis', label: 'Exibição', groups: [
-    { group: 'Visualização', local: true, fields: [
-      { kind: 'switch', local: 'previews', label: 'Atualizar as miniaturas das câmeras', help: 'Desligue para ganhar fps na visão principal.' },
-      { kind: 'switch', local: 'frustums', label: 'Mostrar o campo de visão das câmeras na visão livre' },
-    ] },
-  ] },
-];
-
 const ICON_RESET = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>';
 let uid = 0;
 const fieldRefreshers = [];
@@ -358,7 +325,7 @@ renderPanels();
 
 $('bResetAll').onclick = () => {
   if (!confirm('Restaurar todos os parâmetros para os valores do cenário carregado?')) return;
-  cfg = structuredClone(defaults); renderPanels(); rebuild();
+  cfg = structuredClone(defaults); renderPanels(); apply();
 };
 $('bExport').onclick = () => {
   const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'text/yaml' });   // JSON é YAML válido
@@ -366,6 +333,43 @@ $('bExport').onclick = () => {
 };
 
 await rebuild();
+
+// ------------------------------------------------------------------ controle externo (API / MCP)
+const events = new EventSource('/api/events');
+events.addEventListener('config', (ev) => {
+  const d = JSON.parse(ev.data);
+  if (d.source === CLIENT) return;
+  cfg = d.cfg; defaults = d.defaults; synced = structuredClone(cfg);
+  renderPanels(); rebuild();
+});
+// Comandos que chegam durante um recálculo esperam a cena nova (senão o tempo é aplicado à trajetória antiga).
+function runCommand({ action, value }) {
+  if (!sim || building) { queued.push({ action, value }); return; }
+  if (action === 'play') setPlaying(true);
+  else if (action === 'pause') setPlaying(false);
+  else if (action === 'toggle') setPlaying(!state.playing);
+  else if (action === 'seek') seek(value);
+  else if (action === 'seek_relative_to_crossing') seek(sim.tCross + value);
+  else if (action === 'step') { setPlaying(false); seek(state.t + value); }
+  else if (action === 'speed') setSpeed(value);
+  else if (action === 'loop') { state.loop = !!value; $('loop').checked = state.loop; }
+  else if (action === 'select_camera') { if (thumbs[value]) selectCam(value); }
+  else if (action === 'previews') { state.previews = !!value; renderPanels(); }
+  else if (action === 'frustums') { state.frustums = !!value; sim.free.cam.layers[value ? 'enable' : 'disable'](1); renderPanels(); }
+}
+events.addEventListener('command', (ev) => runCommand(JSON.parse(ev.data)));
+setInterval(() => {
+  if (!sim || document.hidden) return;
+  const p = sim.poseAt(state.t), ev = sim.traj.events;
+  api('POST', '/api/ui-state', {
+    client: CLIENT, t: +state.t.toFixed(4), t_end: sim.tEnd, t_from_crossing: +(state.t - sim.tCross).toFixed(4), playing: state.playing, speed: state.speed, loop: state.loop,
+    camera: selected, cameras: Object.keys(thumbs), busy: !!building,
+    aircraft: { x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3), V: +p.V.toFixed(2) },
+    truth: { clearance_m: sim.truthClearance.clearance, verdict: sim.truthClearance.clearance > 0 ? 'PASS' : 'FAIL', events: ev },
+    fps: Math.round(fpsAvg), gpu: $('sGpu').textContent,
+  }).catch(() => {});
+}, 500);
+
 // Acesso pelo console/automação: window.ui.state, window.ui.controls, window.ui.sim.
 window.ui = { state, get controls() { return controls; }, get sim() { return sim; }, setPlaying, seek, selectCam };
 

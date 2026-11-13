@@ -304,6 +304,17 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
       if (i % 3 === 0) { const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 3.5, 6), metal); mast.rotation.x = Math.PI / 2; mast.position.set(0.5, 0, 1.75); g.add(mast); }
       g.position.set(-40 + 160 * rng.uniform(), 45 + 70 * rng.uniform(), 0); scene.add(g);
     }
+    // Placa de pista de táxi ("B →"), amarela com faixa preta, sobre pés curtos, no gramado além da pista.
+    {
+      const c = document.createElement('canvas'); c.width = 512; c.height = 192; const x = c.getContext('2d');
+      x.fillStyle = '#e8b51a'; x.fillRect(0, 0, 512, 192); x.fillStyle = '#111'; x.fillRect(0, 0, 70, 192);
+      x.font = 'bold 150px sans-serif'; x.textBaseline = 'middle'; x.fillText('B', 150, 104); x.fillText('→', 300, 96);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      const face = new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 }), box = new THREE.MeshStandardMaterial({ color: '#2a2b2d', roughness: 0.7 });
+      const sign = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 0.42), [box, box, box, face, box, box]);
+      sign.position.set(L - 6, Wd / 2 + 9, 0.5); sign.castShadow = true; scene.add(sign);
+      for (const dx of [-0.4, 0.4]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.3), box); leg.position.set(L - 6 + dx, Wd / 2 + 9, 0.15); scene.add(leg); }
+    }
     // Torre treliçada de antena.
     {
       const H = 22, g = new THREE.Group(), strut = new THREE.MeshStandardMaterial({ color: '#8d9298', metalness: 0.7, roughness: 0.5 });

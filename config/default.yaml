@@ -17,12 +17,14 @@ runway:
 obstacle:
   height_m: 0.90          # altura da fita
   width_m: 10.0           # distância entre as hastes
-  posts: true             # hastes: eletroduto com chapa de aço na base, com a altura da fita
-  post_diameter_m: 0.032  # eletroduto de 1"
-  post_base_m: 0.30       # lado da chapa da base
+  posts: true             # hastes: tubo preto sobre base retangular pesada, na altura da fita
+  post_diameter_m: 0.025
+  post_base_m: [0.42, 0.26, 0.05]
+  post_color: "#141516"
   tape: true              # fita zebrada física, com a face listrada para cima
   tape_width_m: 0.07
   tape_sag_m: 0.03        # quanto a fita cai no meio do vão
+  tape_twist_deg: 50      # torção da fita ao longo do vão (0 = face listrada sempre para cima)
   tape_bow_m_per_ms: 0.02 # quanto a fita embarriga por m/s de vento
   tape_colors: ["#d61f1f", "#f2f2ee"]
   backdrop: false         # painel de contraste do lado oposto à câmera de linha
@@ -32,6 +34,8 @@ environment:
   # quality: real  -> céu HDRI, solo escaneado, grama e árvores 3D (precisa de tools/fetch_assets.py)
   #          basic -> cenário procedural leve (usado automaticamente se os assets não existirem)
   quality: real
+  pavement: concreto       # concreto (como em São José dos Campos) ou asfalto
+  haze: 0.00045            # densidade da névoa (afasta prédios e serra)
   sun_azimuth_deg: 215     # de onde vem o sol (0 = +x, 90 = +y)
   sun_elevation_deg: 48    # só no modo basic; no modo real a elevação é a do HDRI (48 graus)
   turbidity: 4             # só no modo basic
@@ -148,8 +152,11 @@ cameras:
   # Câmera de linha: alta velocidade, na altura da faixa, olhando ao longo dela.
   - name: linecam
     role: line
-    position: [55.0, -9.0, 0.90]
-    look_at: [55.0, 0.0, 0.90]
+    # Num tripé baixo colado à haste, no plano da fita, como a câmera de teste de 2026. Fica um pouco acima do
+    # topo da haste: na altura da fita, a própria haste esconderia tudo o que passa abaixo dela.
+    position: [55.0, -6.0, 1.15]
+    look_at: [55.0, 5.0, 0.85]
+    umbrella: true
     resolution: [1280, 720]
     hfov_deg: 24
     fps: 240

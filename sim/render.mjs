@@ -65,9 +65,9 @@ if (args.timeline) {
   fs.writeFileSync(path.join(out, 'ground_truth.json'), JSON.stringify(gt));
   console.log(`Trajetória: massa ${gt.events.mass_kg.toFixed(2)} kg, Vestol ${gt.events.v_stall.toFixed(1)} m/s, rotação t=${gt.events.t_rotate?.toFixed(2)} s, ` +
     `decolou t=${gt.events.t_liftoff?.toFixed(2) ?? '—'} s, cruzou t=${gt.events.t_cross.toFixed(2)} s; folga real ${(gt.clearance_m * 100).toFixed(1)} cm (${gt.verdict})`);
-  if (args.stills) {
-    // Depuração: um quadro por câmera (no instante relativo ao cruzamento dado em --stills).
-    const t = gt.events.t_cross + Number(args.stills === true ? 0 : args.stills);
+  if (args.stills || args.at != null) {
+    // Um quadro por câmera, no instante --at (absoluto) ou --stills (relativo ao cruzamento do obstáculo).
+    const t = args.at != null && args.at !== true ? Number(args.at) : gt.events.t_cross + Number(args.stills === true ? 0 : args.stills);
     for (const name of [...cfg.cameras.map((c) => c.name), 'chase', 'free']) {
       if (typeof args.cameras === 'string' && !args.cameras.split(',').includes(name)) continue;
       const t0 = Date.now();

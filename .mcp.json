@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "takeoff-sim": {
+      "command": "node",
+      "args": ["sim/mcp.mjs"]
+    }
+  }
+}

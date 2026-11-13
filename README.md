@@ -80,6 +80,14 @@ Cada execução cria `runs/<nome>/` com:
 `?scenario=arquivo.yaml` na URL abre um cenário existente. O canto superior direito mostra o fps e a GPU
 em uso — se aparecer "render por software", o navegador não está usando a placa de vídeo.
 
+### Controle externo (API e MCP)
+
+O servidor da interface também expõe uma **API HTTP** (`/api`) e um **servidor MCP** (`/mcp`, ou `npm run mcp`
+por stdio) para agentes e outras aplicações. Eles alteram qualquer parâmetro do cenário (com validação),
+controlam a reprodução e a câmera da interface aberta, renderizam quadros, disparam simulações completas e
+leem os resultados. A interface e os agentes compartilham a mesma sessão: o que um muda, o outro vê.
+Detalhes e exemplos em [docs/API.md](docs/API.md); o `.mcp.json` da raiz já registra o servidor no Claude Code.
+
 ## Configuração
 
 Tudo está em `config/default.yaml` (comentado). Um cenário sobrescreve só o que precisar e pode
@@ -88,8 +96,11 @@ herdar de outro com `extends:`. Os principais grupos:
 - `runway`, `obstacle` — pista e obstáculo. Padrões do Regulamento SAE BRASIL AeroDesign 2026 Rev01
   (R[7.8.0.1]/R[8.11.0.1], Regular e Advanced): fita de **90 cm** de altura e **10 m** de largura a **55 m**
   do início da corrida, com a face zebrada para cima, e marcas auxiliares na pista de 40 m até o obstáculo
-  a cada 5 m. As hastes são eletrodutos sobre uma chapa de aço, como em campo. As quatro câmeras padrão
-  (linha e três de rastreamento) ficam do mesmo lado da pista; o outro lado fica livre. A fita física fica ligada por
+  a cada 5 m. Como em campo, as hastes são tubos pretos sobre uma base retangular pesada, com o prendedor
+  branco da fita no topo, e a fita vermelha e branca torce ao longo do vão (`tape_twist_deg`). As quatro
+  câmeras padrão ficam do mesmo lado da pista. A de linha fica num tripé baixo com guarda-sol, colada à haste
+  e no plano da fita, um pouco acima do topo da haste (na altura da fita, a haste esconderia tudo o que passa
+  abaixo dela); as três de rastreamento ficam em torres de treliça. A fita física fica ligada por
   padrão (`obstacle.tape`), cai `tape_sag_m` no meio do vão e embarriga com o vento; a validação continua
   medindo contra o plano do obstáculo na altura nominal. Painel de contraste opcional.
 - `environment` — sol, vento médio/direção/rajada.
