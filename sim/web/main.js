@@ -213,8 +213,7 @@ const TABS = [
       { kind: 'range', path: 'dynamics.roll_sigma_deg', label: 'Rolamento em voo (σ)', unit: '°', min: 0, max: 10, step: 0.5, digits: 1 },
     ] },
     { group: 'Marcadores ArUco', fields: [
-      { kind: 'switch', path: 'aircraft.markers_enabled', label: 'Marcadores na asa' },
-      { kind: 'select', path: 'aircraft.marker_mount', label: 'Montagem', help: 'Adesivo curva com o perfil da asa; placa fica plana sobre a crista.', options: [['Adesivo colado (curvo)', 'adesivo'], ['Placa rígida (plana)', 'placa']] },
+      { kind: 'switch', path: 'aircraft.markers_enabled', label: 'Adesivos ArUco na asa' },
       { kind: 'range', path: 'aircraft.marker_margin', label: 'Borda branca', help: 'Em relação ao tamanho do código.', unit: '%', scale: 100, min: 5, max: 30, step: 1 },
     ] },
   ] },

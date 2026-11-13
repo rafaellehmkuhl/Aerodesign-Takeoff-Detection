@@ -40,7 +40,7 @@ python3 tools/fetch_assets.py          # ~55 MB de assets CC0 do Poly Haven (cé
 
 Sem GPU o render roda em software (SwiftShader), a ~3–5 s por quadro 1080p no cenário realista
 (~1 s no cenário `basic`). Numa máquina com GPU,
-`SIM_GPU=1 ./run.py ...` usa a placa e fica ordens de grandeza mais rápido.
+`SIM_GPU=1 ./run.py ...` usa a placa de vídeo e fica ordens de grandeza mais rápido.
 
 Outros modos:
 
@@ -78,7 +78,7 @@ Cada execução cria `runs/<nome>/` com:
   `run.py`; coloque-o em `scenarios/`).
 
 `?scenario=arquivo.yaml` na URL abre um cenário existente. O canto superior direito mostra o fps e a GPU
-em uso — se aparecer "render por software", o navegador não está usando a placa.
+em uso — se aparecer "render por software", o navegador não está usando a placa de vídeo.
 
 ## Configuração
 
@@ -92,10 +92,9 @@ herdar de outro com `extends:`. Os principais grupos:
   `.glb` (`model: /models/meu_aviao.glb`, com `model_scale`/`model_rotation_deg`; coloque o arquivo em
   `models/`). `markers` define quantos ArUcos, de que tamanho e onde na asa (qualquer quantidade);
   `markers_enabled: false` (ou a chave "adesivos ArUco" na interface) tira todos, para comparar com e sem.
-  `marker_mount` escolhe a montagem: `adesivo` (padrão) é uma malha colada no envelope externo da asa que
-  acompanha a curvatura do perfil, com o comprimento medido ao longo da superfície (como um vinil esticado,
-  que passa reto por cima de degraus); `placa` é o mesmo marcador numa placa rígida plana apoiada na crista.
-  Os cantos usados pelo algoritmo são os pontos reais do marcador nos dois casos.
+  Cada adesivo é uma malha colada no envelope externo da asa que acompanha a curvatura do perfil, com o
+  comprimento medido ao longo da superfície (como um vinil esticado, que passa reto por cima de degraus).
+  Os cantos usados pelo algoritmo são os pontos reais do marcador sobre a superfície curva.
 - `dynamics` — massa, CLmáx, tração, atrito, velocidade de rotação, ângulo de subida, desvios laterais.
   `target_clearance_m` ajusta a massa automaticamente para obter uma folga real exata — é o jeito
   de fabricar casos-limite (+2 cm, −2 cm…).
@@ -220,7 +219,7 @@ O que apareceu:
 4. **ArUco multi-câmera**: pose em 49–51 de 51 quadros, erro de posição mediano ≈ 19 mm, orientação ≈ 0,6°, e erro
    de folga de poucos mm depois do ajuste de trajetória. Com 720p e FOV de 60° os marcadores de 25 cm
    **não** foram decodificados (células de ~3 px) — foi preciso 1080p com FOV de 42°. Esses números são da
-   montagem em placa rígida plana. E quando só **um** marcador
+   versão anterior, com o marcador plano. E quando só **um** marcador
    é visto por **uma** câmera (fim da janela), a pose chegou a errar ~20 cm — por isso o padrão exige ≥ 8 cantos
    (`algorithms.aruco.min_corners`).
    **Adesivo colado na asa não funcionou.** Um ArUco de 25 cm (o mínimo para decodificar a ~11 m em 1080p)
@@ -229,8 +228,8 @@ O que apareceu:
    leitura dos bits falha. Resultado na decolagem de +2 cm: nenhuma pose. Testei menor (15–20 cm) e na parte
    mais plana da asa, margem branca maior, acabamento fosco e os refinamentos de canto *contour* e *AprilTag*
    com decodificação tolerante: no máximo 2 de 6 detecções, contra 4–6 do mesmo marcador plano. Saídas
-   possíveis em campo: o marcador numa placa rígida plana (`marker_mount: placa`), câmeras mais próximas ou
-   de maior resolução para usar marcadores pequenos, ou um detector que conheça a curvatura da asa.
+   possíveis: câmeras mais próximas ou de maior resolução para usar marcadores pequenos (que curvam menos),
+   ou um detector que conheça a curvatura da asa.
 5. **Sem marcador**: pose em 47/51 quadros, erro de posição mediano ≈ 25 mm, orientação ≈ 1,5°, erro de
    folga ≤ 8 mm. Depende da segmentação: sem supressão de sombra, sem registro dos quadros (vibração)
    ou com peças na cena que não estão no modelo 3D, o erro sobe para vários centímetros.

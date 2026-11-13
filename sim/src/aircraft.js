@@ -224,13 +224,7 @@ async function addMarkers(g, a, assetsUrl) {
       grid.push({ b, bx, by, at });
     }
     const lift = 0.0006;                                     // espessura do vinil + folga contra z-fighting
-    let zFlat = -Infinity;
-    // Montagem: 'adesivo' cola na pele e curva com ela; 'placa' é o mesmo marcador numa placa rígida plana
-    // apoiada no ponto mais alto da asa sob ela (2 mm de espessura).
-    const plate = (a.marker_mount ?? 'adesivo') === 'placa';
-    if (plate) for (const row of grid) for (let k = 0; k <= 20; k++) zFlat = Math.max(zFlat, row.at(-half + (F * k) / 20).z);
     const point = (row, s) => {
-      if (plate) return new THREE.Vector3(row.bx + d[0] * s, row.by + d[1] * s, zFlat + 0.002);
       const q = row.at(s), n = Math.hypot(q.du, q.dz) || 1;  // normal no plano (direção cima, z)
       const un = -q.dz / n, zn = q.du / n;
       return new THREE.Vector3(row.bx + d[0] * (q.u + un * lift), row.by + d[1] * (q.u + un * lift), q.z + zn * lift);
