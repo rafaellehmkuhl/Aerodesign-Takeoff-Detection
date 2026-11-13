@@ -120,8 +120,11 @@ Com os assets baixados (`tools/fetch_assets.py`), `environment.quality: real` (p
 - **céu e luz reais**: HDRI `kloofendal_48d_partly_cloudy_puresky` como fundo e como iluminação baseada em
   imagem; o sol direto (com sombras) é uma luz direcional alinhada ao sol do HDRI, na proporção de irradiância
   medida no arquivo, e o disco solar é limitado no mapa de ambiente para não contar o sol duas vezes;
-- **solo escaneado**: asfalto e grama PBR (cor, normal, rugosidade) com variação em macro-escala para não
-  "azulejar", pintura gasta, manchas de borracha;
+- **cenário de São José dos Campos**: pista de concreto claro com juntas entre placas (`environment.pavement:
+  asfalto` volta ao asfalto), campo aberto de grama, instrumentos meteorológicos e torre de antena do
+  aeroporto, capões de árvores, prédios da cidade no horizonte e serra ao longe na névoa;
+- **suportes das câmeras**: torres de treliça de alumínio de seção quadrada (box truss), como as usadas na
+  competição; a câmera de linha, baixa, fica num tripé;
 - **vegetação que se mexe**: tufos de grama 3D nas laterais da pista e árvores com folhagem real, ambos
   balançando com o vento configurado — fundo dinâmico, que é o que quebra subtração de fundo no mundo real;
 - **lente**: além de distorção, ruído e motion blur, aberração cromática lateral e vinheta.
@@ -311,7 +314,8 @@ centenas de pixels), rápido, ao ar livre, sem profundidade, mas com **modelo 3D
   um processo com pontos de controle).
 - **Realismo visual**: céu, luz, asfalto e grama vêm de material escaneado e a aeronave é o modelo real,
   mas ainda é rasterização em tempo real, não path tracing: sem iluminação global, oclusão de ambiente
-  ou reflexos reais; árvores, hangar e alambrado são procedurais; não há pessoas nem veículos (o público fica atrás das câmeras).
+  ou reflexos reais; árvores, prédios, instrumentos do aeroporto e torres são procedurais; não há pessoas nem
+  veículos (o público fica atrás das câmeras).
   A posição dos ArUcos sobre o filme da asa foi escolhida por mim, não pela equipe.
 - O algoritmo sem marcador é um baseline clássico; os métodos de ponta listados acima não foram
   integrados.

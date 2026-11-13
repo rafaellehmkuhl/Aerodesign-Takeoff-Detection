@@ -96,7 +96,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   scene.backgroundRotation.copy(rot); scene.environmentRotation.copy(rot);
   scene.environmentIntensity = env.ibl_intensity ?? 1.0; scene.backgroundIntensity = env.sky_intensity ?? 1.0;
   const sunDir = new THREE.Vector3(Math.cos(el) * Math.cos(sunAz), Math.cos(el) * Math.sin(sunAz), Math.sin(el));
-  scene.fog = new THREE.FogExp2(0xffffff, 0.0011); scene.fog.color.setRGB(0.30, 0.35, 0.46);
+  scene.fog = new THREE.FogExp2(0xffffff, env.haze ?? 0.00045); scene.fog.color.setRGB(0.30, 0.35, 0.46);
 
   const sun = new THREE.DirectionalLight(0xfff1de, env.sun_intensity ?? 4.6);
   sun.castShadow = !cfg.render?.no_shadows;
@@ -118,10 +118,27 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   grass.position.z = -0.02; grass.receiveShadow = true; scene.add(grass);
 
   const total = L + cfg.runway.overrun_m + 12, layer = (f, u) => ({ polygonOffset: true, polygonOffsetFactor: f, polygonOffsetUnits: u });
+  // Pista de concreto (como a de São José dos Campos): placas com juntas escuras, desgaste e manchas.
+  const concrete = (env.pavement ?? 'concreto') === 'concreto';
+  const pv = concrete ? 'concrete' : 'asphalt';
   const asphaltMat = addMacro(new THREE.MeshStandardMaterial({
-    map: tex(P + 'asphalt_diff.jpg', { srgb: true }), normalMap: tex(P + 'asphalt_nor.jpg'), roughnessMap: tex(P + 'asphalt_rough.jpg'),
-    roughness: 1, normalScale: new THREE.Vector2(1.6, 1.6), envMapIntensity: 0.7, ...layer(-2, -6),
-  }), tex(P + 'asphalt_macro_diff.jpg', { srgb: true }), { scale: 31, strength: 0.85, tint: [0.78, 0.78, 0.8] });
+    map: tex(P + pv + '_diff.jpg', { srgb: true }), normalMap: tex(P + pv + '_nor.jpg'), roughnessMap: tex(P + pv + '_rough.jpg'),
+    roughness: 1, normalScale: new THREE.Vector2(1.2, 1.2), envMapIntensity: 0.7, ...layer(-2, -6),
+  }), tex(P + 'asphalt_macro_diff.jpg', { srgb: true }), concrete ? { scale: 37, strength: 0.55, tint: [1.0, 1.0, 1.0], mono: true } : { scale: 31, strength: 0.85, tint: [0.78, 0.78, 0.8] });
+  if (concrete) {
+    const slab = env.slab_m ?? [5, 4.5];
+    const prev = asphaltMat.onBeforeCompile;
+    asphaltMat.onBeforeCompile = (sh, r) => {
+      prev(sh, r);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+        vec2 sj = vMacroPos / vec2(${slab[0].toFixed(2)}, ${slab[1].toFixed(2)});
+        vec2 dj = abs(fract(sj) - 0.5) * vec2(${slab[0].toFixed(2)}, ${slab[1].toFixed(2)});
+        float edge = min(${(slab[0] / 2).toFixed(2)} - dj.x, ${(slab[1] / 2).toFixed(2)} - dj.y);
+        diffuseColor.rgb *= mix(0.42, 1.0, smoothstep(0.006, 0.02, edge));          // junta selada
+        diffuseColor.rgb *= mix(0.9, 1.0, smoothstep(0.02, 0.12, edge));            // borda da placa mais suja
+        diffuseColor.rgb *= 0.94 + 0.12 * fract(sin(dot(floor(sj), vec2(12.9898, 78.233))) * 43758.5453);   // cada placa com um tom`);
+    };
+  }
   for (const k of ['map', 'normalMap', 'roughnessMap']) asphaltMat[k].repeat.set(total / 3, (Wd + 0.8) / 3);
   const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(total, Wd + 0.8, Math.ceil(total / 2), 4), asphaltMat);
   asphalt.position.set(total / 2 - 12, 0, 0); asphalt.receiveShadow = true; scene.add(asphalt);
@@ -153,7 +170,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     const blades = 10, pos = [], uv = [], idx = [], nor = [];
     for (let b = 0; b < blades; b++) {
       // Cada lâmina: um quadrilátero + ponta, curvada para fora da touceira.
-      const a = rng.uniform() * Math.PI * 2, r = 0.045 * Math.sqrt(rng.uniform()), w = 0.0035 + 0.003 * rng.uniform(), h = 0.055 + 0.07 * rng.uniform();
+      const a = rng.uniform() * Math.PI * 2, r = 0.045 * Math.sqrt(rng.uniform()), w = 0.003 + 0.0025 * rng.uniform(), h = 0.035 + 0.045 * rng.uniform();
       const lean = 0.25 + 0.6 * rng.uniform(), ca = Math.cos(a), sa = Math.sin(a), cx = r * ca, cy = r * sa, tx = -sa * w, ty = ca * w, base = pos.length / 3;
       const at = (f, k) => [cx + ca * lean * h * f * f + tx * k, cy + sa * lean * h * f * f + ty * k, h * f];
       pos.push(...at(0, -1), ...at(0, 1), ...at(0.55, -0.75), ...at(0.55, 0.75), ...at(1, 0));
@@ -221,16 +238,17 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     leafMat.onBeforeCompile = (sh, r) => { p0(sh, r); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aH;'); };
     const barkMat = new THREE.MeshStandardMaterial({ map: tex(P + 'bark_diff.jpg', { srgb: true }), roughness: 0.95, envMapIntensity: 0.4 });
     barkMat.map.repeat.set(1, 3);
-    const N = 130, variants = [makeCanopy(420), makeCanopy(340), makeCanopy(500)];
+    const N = 220, variants = [makeCanopy(300), makeCanopy(240), makeCanopy(360)];
     const trunkG = new THREE.CylinderGeometry(0.5, 0.8, 1, 8, 1, true); trunkG.rotateX(Math.PI / 2);
     const canopies = variants.map((g) => new THREE.InstancedMesh(g, leafMat, N * 3));
     const trunks = new THREE.InstancedMesh(trunkG, barkMat, N);
     const counts = variants.map(() => 0), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), up = new THREE.Vector3(0, 0, 1);
     for (let i = 0; i < N; i++) {
-      // Arvoredo em volta do campo, com clareira do lado das tendas e do hangar.
-      const ang = rng.uniform() * 2 * Math.PI, r = 85 + 190 * rng.uniform() ** 1.4;
-      const x = L / 2 + r * Math.cos(ang) * 1.5, y = r * Math.sin(ang), h = 7 + 9 * rng.uniform(), rad = 2.4 + 2.6 * rng.uniform();
-      if (y > 40 && y < 110 && x > L - 60 && x < L + 40) continue;
+      // Faixas de árvores além do campo aberto: na frente da cidade (lado oposto às câmeras) e atrás do público.
+      // aglomerados (capões) espalhados, não uma fileira contínua
+      const far = i % 3 !== 0, cl = Math.floor(rng.uniform() * 14), cx = L / 2 + (cl / 13 - 0.5) * 1500 + 40 * Math.sin(cl * 7.1);
+      const x = cx + rng.gauss() * 28, y = far ? 360 + 60 * Math.sin(cl * 3.3) + rng.gauss() * 18 : -(280 + 50 * Math.sin(cl * 2.1) + rng.gauss() * 18);
+      const h = 7 + 9 * rng.uniform(), rad = 2.4 + 2.6 * rng.uniform();
       const hue = 0.24 + 0.08 * rng.uniform(), sat = 0.45 + 0.25 * rng.uniform(), lit = 0.36 + 0.18 * rng.uniform(), lobes = 3 + Math.floor(3 * rng.uniform());
       for (let k = 0; k < lobes; k++) {
         // copa = lóbulo central + lóbulos menores deslocados (silhueta irregular)
@@ -246,53 +264,55 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     canopies.forEach((c, v) => { c.count = counts[v]; c.frustumCulled = false; scene.add(c); });
     trunks.frustumCulled = false; scene.add(trunks);
 
-    // Morros distantes (silhueta do horizonte).
-    const hillG = new THREE.CylinderGeometry(1500, 1500, 1, 96, 1, true); hillG.rotateX(Math.PI / 2);
-    const hp = hillG.attributes.position, hn = Array.from({ length: 97 }, (_, i) => 7 + 16 * (0.5 + 0.5 * Math.sin(i * 0.41 + 1.3)) * (0.6 + 0.4 * Math.sin(i * 1.7)) + 4 * rng.uniform());
-    for (let i = 0; i < hp.count; i++) if (hp.getZ(i) > 0) hp.setZ(i, hn[i % 97]); else hp.setZ(i, -2);
-    const hills = new THREE.Mesh(hillG, new THREE.MeshStandardMaterial({ color: '#3d6a33', roughness: 1, side: THREE.BackSide, envMapIntensity: 0.5 }));
+    // Serra ao longe (some na névoa) e cidade no horizonte, do lado oposto às câmeras.
+    const hillG = new THREE.CylinderGeometry(4200, 4200, 1, 128, 1, true); hillG.rotateX(Math.PI / 2);
+    const hp = hillG.attributes.position, hn = Array.from({ length: 129 }, (_, i) => 60 + 130 * Math.max(0, Math.sin(i * 0.09 + 0.4)) * (0.6 + 0.4 * Math.sin(i * 0.53)) + 25 * rng.uniform());
+    for (let i = 0; i < hp.count; i++) if (hp.getZ(i) > 0) hp.setZ(i, hn[i % 129]); else hp.setZ(i, -2);
+    const hills = new THREE.Mesh(hillG, new THREE.MeshStandardMaterial({ color: '#56677a', roughness: 1, side: THREE.BackSide, envMapIntensity: 0.6 }));
     hills.position.set(L / 2, 0, 0); scene.add(hills);
 
-    const metal = new THREE.MeshStandardMaterial({ color: '#c9ccd1', metalness: 0.9, roughness: 0.35 });
-    // Hangar ao fundo.
-    const corr = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d');
-      for (let i = 0; i < 256; i++) { const v = 150 + 55 * Math.sin((i / 256) * Math.PI * 2 * 16); x.fillStyle = `rgb(${v},${v + 3},${v + 6})`; x.fillRect(i, 0, 1, 64); }
-      x.fillStyle = 'rgba(60,50,40,0.25)'; x.fillRect(0, 52, 256, 12);
-      const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.repeat.set(6, 1); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; })();
-    const wallM = new THREE.MeshStandardMaterial({ map: corr, roughness: 0.5, metalness: 0.55 });
-    const roofM = new THREE.MeshStandardMaterial({ color: '#6f7780', roughness: 0.45, metalness: 0.7 });
-    for (const [hx, hy, hw, hd, hh] of [[L - 75, 135, 46, 26, 8]]) {
-      const hb = new THREE.Mesh(new THREE.BoxGeometry(hw, hd, hh), wallM); hb.position.set(hx, hy, hh / 2); hb.castShadow = hb.receiveShadow = true; scene.add(hb);
-      const hr = new THREE.Mesh(new THREE.CylinderGeometry(hd / 2, hd / 2, hw, 24, 1, false, 0, Math.PI), roofM);
-      hr.rotation.set(0, 0, Math.PI / 2); hr.scale.set(1, 1, 0.28); hr.position.set(hx, hy, hh); hr.castShadow = true; scene.add(hr);
-      const door = new THREE.Mesh(new THREE.PlaneGeometry(hw * 0.6, hh * 0.8), new THREE.MeshStandardMaterial({ color: '#23272c', roughness: 0.6, metalness: 0.4 }));
-      door.rotation.x = Math.PI / 2; door.position.set(hx, hy - hd / 2 - 0.02, hh * 0.4); scene.add(door);
-    }
-    // Alambrado de isolamento do público com faixas de lona.
-    const banner = (text, bg, fg) => {
-      const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const x = c.getContext('2d');
-      x.fillStyle = bg; x.fillRect(0, 0, 1024, 256); x.fillStyle = fg; x.font = 'bold 150px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, 512, 136);
-      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
-      return new THREE.MeshStandardMaterial({ map: t, roughness: 0.75, side: THREE.DoubleSide });
-    };
-    const banners = [banner('AERODESIGN', '#12305e', '#f4f4f0'), banner('DECOLAGEM', '#c8102e', '#ffffff'), banner('PISTA', '#f2c230', '#1b1b1b'), banner('EQUIPE 110', '#1f7a4a', '#ffffff')];
-    const railG = new THREE.CylinderGeometry(0.018, 0.018, 1, 6);
-    const fy = Wd / 2 + 15;
-    for (let x = -12, k = 0; x < L + 46; x += 2.5, k++) {
-      const post = new THREE.Mesh(railG, metal); post.scale.y = 1.1; post.rotation.x = Math.PI / 2; post.position.set(x, fy, 0.55); post.castShadow = true; scene.add(post);
-      for (const z of [0.25, 1.05]) { const rail = new THREE.Mesh(railG, metal); rail.scale.y = 2.5; rail.rotation.z = Math.PI / 2; rail.position.set(x + 1.25, fy, z); scene.add(rail); }
-      if (k % 3 !== 2) {
-        const bn = new THREE.Mesh(new THREE.PlaneGeometry(2.35, 0.7), banners[(k * 7) % banners.length]);
-        bn.rotation.x = Math.PI / 2; bn.position.set(x + 1.25, fy - 0.02, 0.65); bn.castShadow = true; scene.add(bn);
+    const facade = (seed) => {
+      // Fachada de prédio residencial: faixas de janelas e lajes, em tons de concreto/cerâmica.
+      const c = document.createElement('canvas'); c.width = 128; c.height = 256; const x = c.getContext('2d'), r2 = makeRng(seed);
+      const base = ['#d9d6cf', '#e6e3dc', '#c8c4bd', '#eeebe4', '#b9b5ae'][seed % 5];
+      x.fillStyle = base; x.fillRect(0, 0, 128, 256);
+      for (let fy = 4; fy < 256; fy += 12) for (let fx = 6; fx < 128; fx += 16) {
+        x.fillStyle = r2.uniform() < 0.8 ? `rgb(${50 + 40 * r2.uniform()},${60 + 40 * r2.uniform()},${75 + 40 * r2.uniform()})` : '#8a8f96';
+        x.fillRect(fx, fy, 10, 7);
       }
+      const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      return t;
+    };
+    const facades = Array.from({ length: 5 }, (_, k) => new THREE.MeshStandardMaterial({ map: facade(cfg.seed + k), roughness: 0.85, envMapIntensity: 0.5 }));
+    for (let i = 0; i < 70; i++) {
+      const w = 16 + 14 * rng.uniform(), dpt = 14 + 10 * rng.uniform(), hgt = 35 + 85 * rng.uniform() ** 1.3;
+      const g = new THREE.BoxGeometry(w, dpt, hgt);
+      const uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * (w / 12), uv.getY(k) * (hgt / 18));
+      const b = new THREE.Mesh(g, facades[i % facades.length]);
+      b.position.set(L / 2 + (rng.uniform() - 0.5) * 2400 * (0.4 + 0.6 * rng.uniform()), 750 + 700 * rng.uniform(), hgt / 2); b.rotation.z = (rng.uniform() - 0.5) * 0.3;
+      scene.add(b);
     }
-    // Bandeiras ao vento.
-    const flagG = new THREE.PlaneGeometry(1.4, 0.9, 12, 4); flagG.translate(0.7, 0, 0);
-    for (let i = 0; i < 6; i++) {
-      const px = -4 + i * 13, py = fy + 1.2, fp = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 5, 8), metal);
-      fp.rotation.x = Math.PI / 2; fp.position.set(px, py, 2.5); fp.castShadow = true; scene.add(fp);
-      const fm = addWind(new THREE.MeshStandardMaterial({ color: ['#1f7a4a', '#f2c230', '#12305e', '#c8102e', '#f4f4f0', '#f2c230'][i], roughness: 0.8, side: THREE.DoubleSide }), time, wind, { amp: 0.035, freq: 5.5, heightExpr: '(uv.x * 2.2)', scale: 3.0 });
-      const fl = new THREE.Mesh(flagG, fm); fl.rotation.set(Math.PI / 2, 0, 0); fl.rotateY(-wdir); fl.position.set(px, py, 4.45); fl.castShadow = true; scene.add(fl);
+
+    const metal = new THREE.MeshStandardMaterial({ color: '#c9ccd1', metalness: 0.9, roughness: 0.35 });
+    const white = new THREE.MeshStandardMaterial({ color: '#f1f1ee', roughness: 0.6 });
+    // Instrumentos meteorológicos do aeroporto espalhados pelo campo (caixas brancas sobre suportes).
+    for (let i = 0; i < 9; i++) {
+      const g = new THREE.Group(), hp2 = 1.0 + 1.2 * rng.uniform();
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, hp2, 8), metal); leg.rotation.x = Math.PI / 2; leg.position.z = hp2 / 2;
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.35 + 0.3 * rng.uniform(), 0.3, 0.4 + 0.3 * rng.uniform()), white); box.position.z = hp2 + 0.2;
+      leg.castShadow = box.castShadow = true; g.add(leg, box);
+      if (i % 3 === 0) { const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 3.5, 6), metal); mast.rotation.x = Math.PI / 2; mast.position.set(0.5, 0, 1.75); g.add(mast); }
+      g.position.set(-40 + 160 * rng.uniform(), 45 + 70 * rng.uniform(), 0); scene.add(g);
+    }
+    // Torre treliçada de antena.
+    {
+      const H = 22, g = new THREE.Group(), strut = new THREE.MeshStandardMaterial({ color: '#8d9298', metalness: 0.7, roughness: 0.5 });
+      const bar = (a, b, r) => { const v = b.clone().sub(a), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, v.length(), 5), strut); m.position.copy(a).add(b).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize()); g.add(m); };
+      const w = (z) => 0.9 - 0.5 * (z / H), V = (x, y, z) => new THREE.Vector3(x, y, z);
+      for (const [sx, sy] of [[1, 1], [1, -1], [-1, -1], [-1, 1]]) bar(V(sx * w(0), sy * w(0), 0), V(sx * w(H), sy * w(H), H), 0.04);
+      for (let z = 0; z < H; z += 1.5) for (const [a, b] of [[[1, 1], [1, -1]], [[1, -1], [-1, -1]], [[-1, -1], [-1, 1]], [[-1, 1], [1, 1]]]) bar(V(a[0] * w(z), a[1] * w(z), z), V(b[0] * w(z + 1.5), b[1] * w(z + 1.5), z + 1.5), 0.015);
+      bar(V(0, 0, H), V(0, 0, H + 5), 0.03);
+      g.traverse((o) => { o.castShadow = true; }); g.position.set(L - 70, 120, 0); scene.add(g);
     }
     // Biruta.
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 4, 8), metal); pole.rotation.x = Math.PI / 2; pole.position.set(20, -16, 2); pole.castShadow = true; scene.add(pole);

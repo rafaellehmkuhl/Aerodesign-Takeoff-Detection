@@ -181,21 +181,40 @@ export function buildWorld(cfg) {
   return { scene, sunDir, focusShadow, obstacle };
 }
 
-// Mastro/tripé desenhado na posição de uma câmera.
+// Suporte da câmera. Acima de 2 m: torre de treliça de alumínio de seção quadrada (box truss de palco,
+// 29 cm, tubos de 48 mm com travessas e diagonais) sobre uma base de chapa; abaixo, um tripé.
 export function buildMast(position) {
   const g = new THREE.Group();
-  const dark = new THREE.MeshStandardMaterial({ color: '#2b2d31', roughness: 0.6, metalness: 0.4 });
   const [x, y, z] = position;
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, Math.max(z - 0.12, 0.05), 8), dark);
-  pole.rotation.x = Math.PI / 2; pole.position.set(x, y, (z - 0.12) / 2); pole.castShadow = true; g.add(pole);
-  for (let i = 0; i < 3; i++) {
-    const a = (i * 2 * Math.PI) / 3 + 0.5, len = Math.min(0.9, z);
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, len * 1.25, 6), dark);
-    const p0 = new THREE.Vector3(x, y, len * 0.9), p1 = new THREE.Vector3(x + 0.6 * len * Math.cos(a), y + 0.6 * len * Math.sin(a), 0);
-    leg.position.copy(p0).add(p1).multiplyScalar(0.5);
-    leg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), p1.clone().sub(p0).normalize()); g.add(leg);
+  const alu = new THREE.MeshStandardMaterial({ color: '#c3c7cc', metalness: 0.85, roughness: 0.35 });
+  const dark = new THREE.MeshStandardMaterial({ color: '#2b2d31', roughness: 0.6, metalness: 0.4 });
+  const bar = (a, b, r, mat = alu) => {
+    const v = b.clone().sub(a), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, v.length(), 10), mat);
+    m.position.copy(a).add(b).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize());
+    m.castShadow = true; m.receiveShadow = true; g.add(m);
+  };
+  const V = (a, b, c) => new THREE.Vector3(x + a, y + b, c);
+  const top = Math.max(z - 0.12, 0.05);
+  if (z > 2) {
+    const h = 0.145, corners = [[h, h], [h, -h], [-h, -h], [-h, h]], step = 0.5;
+    for (const [a, b] of corners) bar(V(a, b, 0.01), V(a, b, top), 0.024);
+    for (let k = 0, zz = 0.25; zz < top; zz += step, k++) {
+      for (let c = 0; c < 4; c++) {
+        const [a0, b0] = corners[c], [a1, b1] = corners[(c + 1) % 4];
+        bar(V(a0, b0, zz), V(a1, b1, zz), 0.01);                                                   // travessa
+        if (zz + step < top) bar(V(a0, b0, zz), V(a1, b1, zz + step), 0.008);                      // diagonal
+      }
+    }
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.01), dark); base.position.set(x, y, 0.005); base.receiveShadow = true; g.add(base);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.012), alu); plate.position.set(x, y, top + 0.006); plate.castShadow = true; g.add(plate);
+  } else {
+    bar(V(0, 0, 0), V(0, 0, top), 0.02, dark);
+    for (let i = 0; i < 3; i++) {
+      const a = (i * 2 * Math.PI) / 3 + 0.5, len = Math.min(0.9, z);
+      bar(V(0, 0, len * 0.9), V(0.6 * len * Math.cos(a), 0.6 * len * Math.sin(a), 0), 0.012, dark);
+    }
   }
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.08), dark);
-  body.position.set(x, y, z - 0.09); g.add(body);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.09), dark);
+  body.position.set(x, y, z - 0.07); body.castShadow = true; g.add(body);
   return g;
 }
