@@ -4,3 +4,4 @@ runs/
 __pycache__/
 *.pyc
 sim/assets/polyhaven/
+sim/assets/backdrop/backdrop_preview.exr

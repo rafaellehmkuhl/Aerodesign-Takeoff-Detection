@@ -2,6 +2,7 @@
 // grama 3D e árvores com folhagem que se movem com o vento. Requer tools/fetch_assets.py.
 import * as THREE from 'three';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { makeRng, deg } from './util.js';
 import { buildObstacle } from './world.js';
 
@@ -77,6 +78,15 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   const wdir = deg(env.wind.direction_deg);
   const wind = { x: Math.cos(wdir), y: Math.sin(wdir), speed: env.wind.speed_ms };
 
+  // Fundo distante pré-renderizado no Blender (tools/bake_backdrop.py): morros, cidade e mata num panorama.
+  // Sem o arquivo, a cena monta o fundo procedural de antes.
+  const BD = { center: [54, -9, 4], latMin: -4, latMax: 14, radius: 1500 };   // igual a tools/bake_backdrop.py
+  let backdrop = null;
+  if (env.backdrop ?? true) {
+    try { backdrop = await new EXRLoader().setDataType(THREE.HalfFloatType).loadAsync('/assets/backdrop/' + (env.backdrop_file ?? 'backdrop.exr')); }
+    catch { console.warn('[fundo] backdrop.exr não encontrado: usando o fundo procedural (rode tools/bake_backdrop.py)'); }
+  }
+
   // --- Céu / iluminação baseada em imagem ---
   const hdr = await new RGBELoader().setDataType(THREE.FloatType).loadAsync(assets + (env.sky_hdri ?? 'sky_cloudy_4k.hdr'));
   // O HDRI já contém o sol. Para ter sombras, o sol direto vem de uma luz direcional; por isso o disco solar é
@@ -129,7 +139,10 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     map: tex(P + 'grass_diff.jpg', { srgb: true, repeat: 4000 / 2.6 }), normalMap: tex(P + 'grass_nor.jpg', { repeat: 4000 / 2.6 }),
     roughnessMap: tex(P + 'grass_rough.jpg', { repeat: 4000 / 2.6 }), roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3), envMapIntensity: 0.6,
   }), tex(P + 'grass_macro_diff.jpg', { srgb: true }), { scale: 55, strength: 0.45, tint: env.grass_tint ?? [0.4, 0.61, 0.4], mono: true });
-  const grass = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000, 200, 200), grassMat);
+  const groundR = backdrop ? BD.radius - 100 : 2000;
+  if (backdrop) for (const k of ['map', 'normalMap', 'roughnessMap']) grassMat[k].repeat.set((2 * groundR) / 2.6, (2 * groundR) / 2.6);
+  const grass = new THREE.Mesh(backdrop ? new THREE.CircleGeometry(groundR, 256) : new THREE.PlaneGeometry(4000, 4000, 200, 200), grassMat);
+  if (backdrop) grass.position.x = L / 2;
   grass.position.z = -0.02; grass.receiveShadow = true; scene.add(grass);
 
   const total = L + cfg.runway.overrun_m + 12, layer = (f, u) => ({ polygonOffset: true, polygonOffsetFactor: f, polygonOffsetUnits: u });
@@ -231,6 +244,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
 
   // --- Árvores: tronco + copa de cartões de folhagem (textura real), com balanço de vento ---
   if (env.scenery) {
+    if (!backdrop) {
     const leafMap = tex(P + 'leaves_diff.jpg', { srgb: true }), leafAlpha = tex(P + 'leaves_alpha.png');
     const atlas = [[0.14, 0.50, 0.50, 0.98], [0.0, 0.36, 0.22, 0.66], [0.12, 0.02, 0.5, 0.36], [0.5, 0.02, 1.0, 0.36], [0.5, 0.5, 0.98, 0.98]];
     const makeCanopy = (cards) => {
@@ -363,6 +377,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
       }
     }
 
+    }
     const metal = new THREE.MeshStandardMaterial({ color: '#c9ccd1', metalness: 0.9, roughness: 0.35 });
     const white = new THREE.MeshStandardMaterial({ color: '#f1f1ee', roughness: 0.6 });
     // Instrumentos meteorológicos do aeroporto espalhados pelo campo (caixas brancas sobre suportes).
@@ -400,6 +415,27 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     const sock = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.3, 12, 1, true), new THREE.MeshStandardMaterial({ color: '#ff5a1f', side: THREE.DoubleSide, roughness: 0.8 }));
     sock.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(wind.x, wind.y, -0.25 - 0.5 / (1 + wind.speed)).normalize());
     sock.position.set(20 + 0.6 * wind.x, -16 + 0.6 * wind.y, 3.85); scene.add(sock);
+  }
+
+  if (backdrop) {
+    // Faixa de esfera ao redor do ponto de vista do panorama; u = 0,5 − azimute/360°, v da latitude.
+    const na = 1024, nl = 24, pos = [], uv = [], idx = [], c = BD.center;
+    for (let j = 0; j <= nl; j++) {
+      const lat = deg(BD.latMin + (BD.latMax - BD.latMin) * (j / nl));
+      for (let i = 0; i <= na; i++) {
+        const az = Math.PI - (2 * Math.PI * i) / na;
+        pos.push(c[0] + BD.radius * Math.cos(lat) * Math.cos(az), c[1] + BD.radius * Math.cos(lat) * Math.sin(az), c[2] + BD.radius * Math.sin(lat));
+        uv.push(i / na, j / nl);
+      }
+    }
+    for (let j = 0; j < nl; j++) for (let i = 0; i < na; i++) { const a = j * (na + 1) + i, b = a + na + 1; idx.push(a, a + 1, b, a + 1, b + 1, b); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+    backdrop.colorSpace = THREE.LinearSRGBColorSpace; backdrop.minFilter = THREE.LinearFilter; backdrop.generateMipmaps = false;
+    const gain = env.backdrop_gain ?? 1;
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: backdrop, color: new THREE.Color(gain, gain, gain), transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    m.renderOrder = -1; m.frustumCulled = false; scene.add(m);
+    console.log(`[fundo] panorama ${backdrop.image.width}×${backdrop.image.height} do Blender`);
   }
 
   const obstacle = buildObstacle(cfg); scene.add(obstacle);

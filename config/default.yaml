@@ -37,7 +37,7 @@ environment:
   quality: real
   pavement: concreto       # concreto (como em São José dos Campos) ou asfalto
   sky_hdri: sky_cloudy_4k.hdr   # céu (sim/assets/polyhaven): sky_cloudy_4k.hdr (nublado, como nas fotos) ou sky_4k.hdr (poucas nuvens)
-  haze: 0.00025            # densidade da névoa (perspectiva aérea: lava prédios e morros a quilômetros)
+  haze: 0.00016            # densidade da névoa (perspectiva aérea: lava prédios e morros a quilômetros)
   sun_azimuth_deg: 215     # de onde vem o sol (0 = +x, 90 = +y)
   sun_elevation_deg: 48    # só no modo basic; no modo real a elevação é a do HDRI (48 graus)
   turbidity: 4             # só no modo basic
