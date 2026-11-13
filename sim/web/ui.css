@@ -171,5 +171,3 @@ input[type="range"]:disabled, input[type="number"]:disabled { opacity: 0.4; curs
 .field-top select.input { max-width: 190px; }
 .reset[hidden] { visibility: hidden; display: inline-flex; }
 .screen-hint[hidden] { display: none; }
-.mark.to-left span { transform: translate(calc(-100% + 1px), 1px); }
-.mark.to-right span { transform: translate(-1px, 1px); }

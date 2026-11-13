@@ -151,15 +151,24 @@ document.addEventListener('keydown', (e) => {
 function buildMarks() {
   const m = $('marks'); m.innerHTML = '';
   const ev = sim.traj.events;
-  let prev = null;
   for (const [t, label, cls] of [[ev.t_rotate, 'rotação', ''], [ev.t_liftoff, 'decolagem', ''], [ev.t_cross, 'obstáculo', 'obs']]) {
     if (t == null) continue;
-    const f = t / sim.tEnd, mark = el('div', { className: `mark ${cls}`, style: `left: calc(9px + (100% - 18px) * ${f})` }, el('span', { textContent: label }));
-    // Eventos próximos: o rótulo anterior encosta à esquerda do traço e o atual à direita.
-    if (prev && f - prev.f < 0.12) { prev.mark.classList.add('to-left'); mark.classList.add('to-right'); }
-    m.append(mark); prev = { f, mark };
+    const f = t / sim.tEnd;
+    m.append(el('div', { className: `mark ${cls}`, style: `left: calc(9px + (100% - 18px) * ${f})` }, el('span', { textContent: label })));
   }
+  layoutMarks();
 }
+// Rótulos dos eventos sem sobreposição: empurra para a direita quem encosta no anterior e, se o último
+// passar do fim da linha do tempo, empurra o grupo de volta para a esquerda.
+function layoutMarks() {
+  const marks = [...$('marks').children], gap = 6;
+  const box = marks.map((mk) => { const x = mk.offsetLeft, w = mk.firstChild.offsetWidth; return { mk, x, w, l: x - w / 2 }; });
+  for (let i = 1; i < box.length; i++) box[i].l = Math.max(box[i].l, box[i - 1].l + box[i - 1].w + gap);
+  let limit = $('marks').clientWidth + 24;
+  for (let i = box.length - 1; i >= 0; i--) { box[i].l = Math.min(box[i].l, limit - box[i].w); limit = box[i].l - gap; }
+  for (const b of box) b.mk.firstChild.style.transform = `translate(${b.l - b.x}px, 1px)`;
+}
+addEventListener('resize', () => { if (sim) layoutMarks(); });
 
 // ------------------------------------------------------------------ miniaturas
 function camCaption(c) {
