@@ -68,11 +68,11 @@ button, input, select { font: inherit; color: inherit; }
 @media (hover: hover) { .btn.ghost:hover { background: var(--raised); color: var(--text); } }
 
 .timeline { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.track { position: relative; flex: 1; min-width: 0; padding: 14px 0 16px; }
+.track { position: relative; flex: 1; min-width: 0; padding: 6px 0 22px; }
 .clock { min-width: 120px; text-align: right; font-size: 13px; color: var(--muted); }
 .marks { position: absolute; inset: 0; pointer-events: none; }
-.mark { position: absolute; top: 4px; bottom: 0; width: 2px; margin-left: -1px; background: var(--muted); border-radius: 1px; }
-.mark span { position: absolute; bottom: -2px; left: 50%; transform: translate(-50%, 0); font-size: 10px; color: var(--muted); white-space: nowrap; }
+.mark { position: absolute; top: 2px; height: 32px; width: 2px; margin-left: -1px; background: var(--muted); border-radius: 1px; opacity: 0.8; }
+.mark span { position: absolute; top: 100%; left: 50%; transform: translate(-50%, 1px); font-size: 11px; color: var(--muted); white-space: nowrap; }
 .mark.obs { background: var(--warn); } .mark.obs span { color: var(--warn); }
 
 input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; margin: 0; background: transparent; cursor: pointer; }
@@ -162,3 +162,14 @@ select.input { min-height: 34px; padding: 0 8px; border-radius: 7px; border: 1px
   .transport, .rate { flex-wrap: wrap; }
   .perf { margin-left: 0; }
 }
+
+.btn.small { min-height: 28px; padding: 0 10px; font-size: 12px; }
+.switch.inline { display: inline-block; vertical-align: middle; margin-right: 8px; }
+.field-top label { display: flex; flex-wrap: wrap; align-items: center; column-gap: 0; }
+.field-top label .field-help, .switch-row .field-help { flex-basis: 100%; }
+input[type="range"]:disabled, input[type="number"]:disabled { opacity: 0.4; cursor: not-allowed; }
+.field-top select.input { max-width: 190px; }
+.reset[hidden] { visibility: hidden; display: inline-flex; }
+.screen-hint[hidden] { display: none; }
+.mark.to-left span { transform: translate(calc(-100% + 1px), 1px); }
+.mark.to-right span { transform: translate(-1px, 1px); }

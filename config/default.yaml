@@ -72,10 +72,16 @@ aircraft:
   # position: [x, y] do centro no referencial do corpo (x para frente, y para a esquerda), em metros.
   # O "cima" do código aponta para +x (bordo de ataque); yaw_deg gira o adesivo.
   markers_enabled: true
+  # adesivo: colado no filme, curvando com o perfil (o que a equipe faria com um vinil).
+  # placa:   o mesmo marcador numa placa rígida plana apoiada na crista da asa.
+  # Achado: com estas câmeras um adesivo de 25 cm cobre metade da corda e curva demais para o
+  # detector padrão do OpenCV, que supõe um marcador plano; na placa ele é detectado.
+  marker_mount: adesivo
+  marker_roughness: 0.7    # acabamento do adesivo (0 = brilhante, 1 = fosco)
   markers:
     - { id: 0, size_m: 0.25, position: [-0.015, 0.95] }
     - { id: 1, size_m: 0.25, position: [-0.015, -0.95] }
-  marker_margin: 0.10      # borda branca do adesivo em volta do código (fração do tamanho do código)
+  marker_margin: 0.12      # borda branca do adesivo em volta do código (fração do tamanho do código)
 
 dynamics:
   mass_kg: 20.0            # massa total (vazio + carga)

@@ -7,7 +7,6 @@ import { ROOT, loadConfig } from './config.mjs';
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.css': 'text/css', '.glb': 'model/gltf-binary', '.yaml': 'text/plain' };
 const MOUNTS = [
   ['/vendor/three/', path.join(ROOT, 'node_modules/three/')],
-  ['/vendor/lil-gui/', path.join(ROOT, 'node_modules/lil-gui/dist/')],
   ['/src/', path.join(ROOT, 'sim/src/')],
   ['/assets/', path.join(ROOT, 'sim/assets/')],
   ['/models/', path.join(ROOT, 'models/')],

@@ -181,8 +181,23 @@ async function addMarkers(g, a, assetsUrl) {
     // O adesivo vai na pele externa: o filme da asa, quando o modelo tem um (senão, a superfície mais alta).
     // `marker_surface` (regex de nome de objeto) escolhe outra superfície.
     const near = all.filter((o) => new THREE.Box3().setFromObject(o).intersectsBox(reg));
-    const pick = a.marker_surface ? near.filter((o) => new RegExp(a.marker_surface, 'i').test(o.name)) : near.filter((o) => o.userData.film);
+    // O adesivo assenta no envelope externo da asa (filme e estrutura logo abaixo dele, como a caixa de
+    // torção que no modelo aflora um pouco acima do filme). `marker_surface` (regex de nome) restringe.
+    const pick = a.marker_surface ? near.filter((o) => new RegExp(a.marker_surface, 'i').test(o.name)) : near;
     const targets = pick.length ? pick : near;
+    // Vinil esticado: segue o perfil onde ele é convexo e passa reto por cima de degraus e frestas
+    // (envoltória convexa superior dos pontos do perfil).
+    const upperHull = (xs, zs) => {
+      const h = [];
+      for (let k = 0; k < xs.length; k++) {
+        while (h.length >= 2) {
+          const [i, j] = [h[h.length - 2], h[h.length - 1]];
+          if ((xs[j] - xs[i]) * (zs[k] - zs[i]) - (zs[j] - zs[i]) * (xs[k] - xs[i]) >= 0) h.pop(); else break;
+        }
+        h.push(k);
+      }
+      return xs.map((x) => { let m = 1; while (m < h.length - 1 && xs[h[m]] < x) m++; const i = h[m - 1], j = h[m]; return zs[i] + ((zs[j] - zs[i]) * (x - xs[i])) / (xs[j] - xs[i] || 1); });
+    };
     // Um raio exatamente sobre a costura entre duas malhas (ex.: a borda do aileron) passa pela fresta:
     // nesse caso tenta posições vizinhas a até 2 mm.
     const JIT = [[0, 0], [0, 0.0012], [0, -0.0012], [0.0012, 0], [-0.0012, 0], [0, 0.002], [0, -0.002]];
@@ -198,6 +213,7 @@ async function addMarkers(g, a, assetsUrl) {
       const xs = [], zs = [];
       for (let u = -reach; u <= reach + 1e-9; u += step) { const z = topAt(bx + d[0] * u, by + d[1] * u); if (z != null) { xs.push(u); zs.push(z); } }
       if (xs.length < 4) throw new Error(`adesivo ${mk.id}: a asa não está sob o ponto (${cx}, ${cy})`);
+      zs.splice(0, zs.length, ...upperHull(xs, zs));
       const arc = [0]; for (let k = 1; k < xs.length; k++) arc.push(arc[k - 1] + Math.hypot(xs[k] - xs[k - 1], zs[k] - zs[k - 1]));
       const k0 = xs.reduce((m, u, k) => (Math.abs(u) < Math.abs(xs[m]) ? k : m), 0), a0 = arc[k0] - xs[k0];   // arco no centro (u = 0)
       const at = (s) => {                                    // posição (u, z) e inclinação no arco s (relativo ao centro)
@@ -207,11 +223,14 @@ async function addMarkers(g, a, assetsUrl) {
       };
       grid.push({ b, bx, by, at });
     }
-    const lift = a.marker_lift ?? 0.0006;                                     // espessura do vinil + folga contra z-fighting
+    const lift = 0.0006;                                     // espessura do vinil + folga contra z-fighting
     let zFlat = -Infinity;
-    if (a.marker_flat) for (const row of grid) for (let k = 0; k <= 20; k++) zFlat = Math.max(zFlat, row.at(-half + (F * k) / 20).z);
+    // Montagem: 'adesivo' cola na pele e curva com ela; 'placa' é o mesmo marcador numa placa rígida plana
+    // apoiada no ponto mais alto da asa sob ela (2 mm de espessura).
+    const plate = (a.marker_mount ?? 'adesivo') === 'placa';
+    if (plate) for (const row of grid) for (let k = 0; k <= 20; k++) zFlat = Math.max(zFlat, row.at(-half + (F * k) / 20).z);
     const point = (row, s) => {
-      if (a.marker_flat) return new THREE.Vector3(row.bx + d[0] * s, row.by + d[1] * s, zFlat + 0.002);   // teste: adesivo plano
+      if (plate) return new THREE.Vector3(row.bx + d[0] * s, row.by + d[1] * s, zFlat + 0.002);
       const q = row.at(s), n = Math.hypot(q.du, q.dz) || 1;  // normal no plano (direção cima, z)
       const un = -q.dz / n, zn = q.du / n;
       return new THREE.Vector3(row.bx + d[0] * (q.u + un * lift), row.by + d[1] * (q.u + un * lift), q.z + zn * lift);
@@ -242,6 +261,7 @@ async function addMarkers(g, a, assetsUrl) {
     const rowAt = (b) => {                                   // linha exata em b (os cantos não caem na grade)
       const bx = cx - p[0] * b, by = cy - p[1] * b, xs = [], zs = [];
       for (let u = -reach; u <= reach + 1e-9; u += step / 3) { const z = topAt(bx + d[0] * u, by + d[1] * u); if (z != null) { xs.push(u); zs.push(z); } }
+      zs.splice(0, zs.length, ...upperHull(xs, zs));
       const arc = [0]; for (let k = 1; k < xs.length; k++) arc.push(arc[k - 1] + Math.hypot(xs[k] - xs[k - 1], zs[k] - zs[k - 1]));
       const k0 = xs.reduce((mm, u, k) => (Math.abs(u) < Math.abs(xs[mm]) ? k : mm), 0), a0 = arc[k0] - xs[k0];
       return { bx, by, at: (s) => { const t = s + a0; let k = 1; while (k < arc.length - 1 && arc[k] < t) k++; const f = Math.min(Math.max((t - arc[k - 1]) / (arc[k] - arc[k - 1] || 1), 0), 1); return { u: xs[k - 1] + f * (xs[k] - xs[k - 1]), z: zs[k - 1] + f * (zs[k] - zs[k - 1]), du: xs[k] - xs[k - 1], dz: zs[k] - zs[k - 1] }; } };

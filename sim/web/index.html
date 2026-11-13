@@ -4,47 +4,74 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simulador de decolagem · AeroDesign</title>
-<script type="importmap">{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/", "lil-gui": "/vendor/lil-gui/lil-gui.esm.min.js" } }</script>
-<style>
-  :root { color-scheme: dark; --bg: #101216; --panel: #181b21; --line: #2a2f38; --text: #e8eaed; --muted: #9aa3ae; --ok: #3ce66e; --bad: #ff5a5a; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.4 Inter, system-ui, sans-serif; }
-  #app { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; gap: 1px; background: var(--line); }
-  header { grid-column: 1 / -1; background: var(--panel); padding: 8px 14px; display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap; }
-  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
-  header .stat { color: var(--muted); font-variant-numeric: tabular-nums; }
-  header .stat b { color: var(--text); font-weight: 600; }
-  #verdict { font-weight: 700; }
-  #main { position: relative; background: #000; min-height: 0; }
-  #main canvas { width: 100%; height: 100%; object-fit: contain; display: block; cursor: grab; }
-  #mainLabel { position: absolute; left: 10px; top: 8px; background: #000a; padding: 2px 8px; border-radius: 4px; pointer-events: none; }
-  #side { background: var(--panel); overflow-y: auto; min-height: 0; }
-  #side .lil-gui { --width: 100%; position: static; }
-  #strip { grid-column: 1 / -1; background: var(--panel); display: flex; gap: 8px; padding: 8px; overflow-x: auto; }
-  .thumb { position: relative; flex: 0 0 auto; border: 2px solid transparent; border-radius: 4px; cursor: pointer; line-height: 0; }
-  .thumb.sel { border-color: #5aa0ff; }
-  .thumb canvas { height: 150px; width: auto; border-radius: 2px; }
-  .thumb span { position: absolute; left: 6px; top: 4px; line-height: 1.3; font-size: 12px; background: #000a; padding: 1px 6px; border-radius: 3px; }
-  #busy { position: absolute; inset: 0; display: none; place-items: center; background: #000a; font-size: 16px; }
-  @media (max-width: 800px) { #app { grid-template-columns: 1fr; grid-template-rows: auto 50vh auto auto; height: auto; } #strip { grid-row: 3; } }
-</style>
+<script type="importmap">{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }</script>
+<link rel="stylesheet" href="/ui.css">
 </head>
 <body>
 <div id="app">
-  <header>
-    <h1>Simulador de decolagem · AeroDesign</h1>
-    <span class="stat">t <b id="sT">0.00</b> s</span>
-    <span class="stat">x <b id="sX">0.0</b> m</span>
-    <span class="stat">V <b id="sV">0.0</b> m/s</span>
-    <span class="stat">massa <b id="sM">—</b> kg · V<sub>estol</sub> <b id="sVs">—</b> m/s</span>
-    <span class="stat">folga real <b id="sC">—</b> <span id="verdict"></span></span>
-    <span class="stat" style="margin-left:auto"><b id="sFps">—</b> fps · <span id="sGpu"></span></span>
+  <header class="top">
+    <h1>Simulador de decolagem <span class="sub">AeroDesign</span></h1>
+    <dl class="readouts" aria-label="Estado da simulação">
+      <div><dt>Tempo</dt><dd><span id="sT">0,00</span> s</dd></div>
+      <div><dt>Posição</dt><dd><span id="sX">0,0</span> m</dd></div>
+      <div><dt>Velocidade</dt><dd><span id="sV">0,0</span> m/s</dd></div>
+      <div><dt>Massa</dt><dd><span id="sM">—</span> kg</dd></div>
+      <div><dt>V<sub>estol</sub></dt><dd><span id="sVs">—</span> m/s</dd></div>
+      <div><dt>Folga real</dt><dd><span id="sC">—</span> <span id="verdict" class="verdict"></span></dd></div>
+    </dl>
+    <p class="perf" id="perf" title="Taxa de quadros da interface e GPU em uso"><span id="sFps">—</span> fps · <span id="sGpu"></span></p>
   </header>
-  <div id="main"><canvas id="view"></canvas><div id="mainLabel">visão livre (arraste para orbitar)</div><div id="busy">recalculando…</div></div>
-  <div id="side"></div>
-  <div id="strip"></div>
+
+  <main class="stage">
+    <section class="viewer" aria-label="Visualização">
+      <div class="screen">
+        <canvas id="view" aria-label="Imagem da câmera selecionada"></canvas>
+        <p class="screen-label" id="mainLabel">Visão livre</p>
+        <p class="screen-hint" id="mainHint">Arraste para orbitar · role para aproximar</p>
+        <p class="busy" id="busy" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="player" role="group" aria-label="Reprodução">
+        <div class="transport">
+          <button class="btn icon" id="bStart" aria-label="Voltar ao início" title="Início (Home)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14M18 6l-9 6 9 6z"/></svg></button>
+          <button class="btn icon" id="bBack" aria-label="Quadro anterior" title="Quadro anterior (←, Shift+← = 0,1 s)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <button class="btn play" id="bPlay" aria-label="Pausar" title="Tocar / pausar (Espaço)" data-state="playing">
+            <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+            <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M8 5.5v13l10.5-6.5z"/></svg>
+          </button>
+          <button class="btn icon" id="bFwd" aria-label="Próximo quadro" title="Próximo quadro (→, Shift+→ = 0,1 s)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button class="btn text" id="bObs" title="Vai para 0,5 s antes de cruzar o obstáculo (O)">Ir ao obstáculo</button>
+        </div>
+
+        <div class="timeline">
+          <div class="track">
+            <input type="range" id="time" min="0" max="10" step="0.001" value="0" aria-label="Tempo da simulação">
+            <div class="marks" id="marks" aria-hidden="true"></div>
+          </div>
+          <output class="clock" id="clock" for="time">0,000 / 0,0 s</output>
+        </div>
+
+        <div class="rate">
+          <span class="rate-label" id="speedLabel">Velocidade</span>
+          <div class="seg" role="radiogroup" aria-labelledby="speedLabel" id="speed"></div>
+          <label class="check"><input type="checkbox" id="loop" checked> Repetir</label>
+        </div>
+      </div>
+
+      <nav class="strip" id="strip" aria-label="Câmeras"></nav>
+    </section>
+
+    <aside class="panel" aria-label="Configuração">
+      <div class="tabs" role="tablist" aria-label="Seções da configuração" id="tabs"></div>
+      <div class="tabpanels" id="tabpanels"></div>
+      <footer class="panel-foot">
+        <button class="btn text" id="bResetAll">Restaurar tudo</button>
+        <button class="btn text" id="bExport">Exportar cenário</button>
+      </footer>
+    </aside>
+  </main>
 </div>
-<canvas id="gl" style="display:none"></canvas>
+<canvas id="gl" hidden></canvas>
 <script type="module" src="/main.js"></script>
 </body>
 </html>

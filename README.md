@@ -65,11 +65,20 @@ Cada execução cria `runs/<nome>/` com:
 
 ### Interface interativa
 
-`npm run ui` abre a cena com visão livre (orbitar com o mouse), os frustums das câmeras, a prévia
-ao vivo de cada câmera com todos os efeitos e um painel para mexer em vento, massa, folga-alvo,
-posição/mira/FOV/FPS/exposição de cada câmera, vibração e erros de calibração. O botão
-"exportar cenário" baixa um `.yaml` pronto para o `run.py` (coloque-o em `scenarios/`).
-`?scenario=arquivo.yaml` na URL abre um cenário existente.
+`npm run ui` e abra `http://127.0.0.1:5173`. A tela tem:
+
+- **a imagem da câmera escolhida** (visão livre orbitável, câmera de acompanhamento ou qualquer câmera do
+  cenário, com todos os efeitos) e, embaixo, **miniaturas ao vivo** de todas elas — clique para trocar;
+- **um player fixo**: tocar/pausar, quadro anterior/próximo, ir ao obstáculo, linha do tempo com as marcas
+  de rotação, decolagem e obstáculo, velocidade de 0,05× a 1× e repetir. Atalhos: Espaço, ←/→ (um quadro
+  de 1/240 s; com Shift, 0,1 s), Home e O;
+- **um painel em abas** (Cenário, Aeronave, Câmeras, Exibição) com controles grandes, valores digitáveis e
+  unidades. Cada valor alterado fica destacado e ganha um botão para voltar ao padrão; cada seção tem
+  "Restaurar seção" e o rodapé tem "Restaurar tudo" e "Exportar cenário" (um `.yaml` pronto para o
+  `run.py`; coloque-o em `scenarios/`).
+
+`?scenario=arquivo.yaml` na URL abre um cenário existente. O canto superior direito mostra o fps e a GPU
+em uso — se aparecer "render por software", o navegador não está usando a placa.
 
 ## Configuração
 
@@ -83,10 +92,10 @@ herdar de outro com `extends:`. Os principais grupos:
   `.glb` (`model: /models/meu_aviao.glb`, com `model_scale`/`model_rotation_deg`; coloque o arquivo em
   `models/`). `markers` define quantos ArUcos, de que tamanho e onde na asa (qualquer quantidade);
   `markers_enabled: false` (ou a chave "adesivos ArUco" na interface) tira todos, para comparar com e sem.
-  Cada adesivo é uma malha colada na pele da asa que acompanha a curvatura do perfil, com o comprimento medido
-  ao longo da superfície (como um vinil, sem esticar); os cantos usados pelo algoritmo são os pontos reais
-  sobre a superfície curva. `marker_surface` (regex de nome de objeto) escolhe em qual malha colar; o padrão é
-  o filme da asa.
+  `marker_mount` escolhe a montagem: `adesivo` (padrão) é uma malha colada no envelope externo da asa que
+  acompanha a curvatura do perfil, com o comprimento medido ao longo da superfície (como um vinil esticado,
+  que passa reto por cima de degraus); `placa` é o mesmo marcador numa placa rígida plana apoiada na crista.
+  Os cantos usados pelo algoritmo são os pontos reais do marcador nos dois casos.
 - `dynamics` — massa, CLmáx, tração, atrito, velocidade de rotação, ângulo de subida, desvios laterais.
   `target_clearance_m` ajusta a massa automaticamente para obter uma folga real exata — é o jeito
   de fabricar casos-limite (+2 cm, −2 cm…).
@@ -210,10 +219,18 @@ O que apareceu:
    a hipótese mais provável, coerente com esse teste, mas não foi isolada de outros fatores.
 4. **ArUco multi-câmera**: pose em 49–51 de 51 quadros, erro de posição mediano ≈ 19 mm, orientação ≈ 0,6°, e erro
    de folga de poucos mm depois do ajuste de trajetória. Com 720p e FOV de 60° os marcadores de 25 cm
-   **não** foram decodificados (células de ~3 px) — foi preciso 1080p com FOV de 42°. O adesivo plano
-   sobre o extradorso curvo também importa: mal apoiado, a asa "fura" o marcador. E quando só **um** marcador
+   **não** foram decodificados (células de ~3 px) — foi preciso 1080p com FOV de 42°. Esses números são da
+   montagem em placa rígida plana. E quando só **um** marcador
    é visto por **uma** câmera (fim da janela), a pose chegou a errar ~20 cm — por isso o padrão exige ≥ 8 cantos
    (`algorithms.aruco.min_corners`).
+   **Adesivo colado na asa não funcionou.** Um ArUco de 25 cm (o mínimo para decodificar a ~11 m em 1080p)
+   cobre metade da corda desta asa, e o extradorso sobe ~50 mm debaixo dele, descendo para o bordo de ataque.
+   O detector do OpenCV supõe um marcador plano: ele acha o quadrado preto, mas os cantos saem ~1 px fora e a
+   leitura dos bits falha. Resultado na decolagem de +2 cm: nenhuma pose. Testei menor (15–20 cm) e na parte
+   mais plana da asa, margem branca maior, acabamento fosco e os refinamentos de canto *contour* e *AprilTag*
+   com decodificação tolerante: no máximo 2 de 6 detecções, contra 4–6 do mesmo marcador plano. Saídas
+   possíveis em campo: o marcador numa placa rígida plana (`marker_mount: placa`), câmeras mais próximas ou
+   de maior resolução para usar marcadores pequenos, ou um detector que conheça a curvatura da asa.
 5. **Sem marcador**: pose em 47/51 quadros, erro de posição mediano ≈ 25 mm, orientação ≈ 1,5°, erro de
    folga ≤ 8 mm. Depende da segmentação: sem supressão de sombra, sem registro dos quadros (vibração)
    ou com peças na cena que não estão no modelo 3D, o erro sobe para vários centímetros.
