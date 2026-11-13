@@ -138,7 +138,9 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   stripe(total / 2 - 12, Wd / 2 - 0.2, total, 0.12); stripe(total / 2 - 12, -Wd / 2 + 0.2, total, 0.12);
   for (let x = 2; x < L + cfg.runway.overrun_m - 2; x += 5) stripe(x + 1, 0, 2, 0.1);
   stripe(0, 0, 0.25, Wd - 0.6); stripe(L, 0, 0.12, Wd - 0.6, yellow);
-  for (let x = 10; x < L; x += 10) { stripe(x, Wd / 2 - 0.6, 0.08, 0.6); stripe(x, -Wd / 2 + 0.6, 0.08, 0.6); }
+  // Marcas laterais a cada 10 m e, como no regulamento, marcas auxiliares de 40 m até o obstáculo a cada 5 m.
+  const marks = new Set(); for (let x = 10; x < L - 15; x += 10) marks.add(x); for (let x = L - 15; x < L - 0.1; x += 5) marks.add(x);
+  for (const x of marks) { stripe(x, Wd / 2 - 0.6, 0.12, 0.9); stripe(x, -Wd / 2 + 0.6, 0.12, 0.9); }
   // Marcas de borracha/óleo ao longo do eixo.
   const stain = new THREE.MeshStandardMaterial({ color: '#0c0c0d', roughness: 0.55, transparent: true, opacity: 0.4, alphaMap: alphaNoise(128, rng, { base: 0.35, contrast: 1.6, cells: 10 }), ...layer(-3, -9) });
   for (let i = 0; i < 16; i++) {
@@ -251,20 +253,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     const hills = new THREE.Mesh(hillG, new THREE.MeshStandardMaterial({ color: '#3d6a33', roughness: 1, side: THREE.BackSide, envMapIntensity: 0.5 }));
     hills.position.set(L / 2, 0, 0); scene.add(hills);
 
-    // Tendas das equipes, mesas e faixas.
     const metal = new THREE.MeshStandardMaterial({ color: '#c9ccd1', metalness: 0.9, roughness: 0.35 });
-    const cols = ['#eceae4', '#2456b8', '#c8322f', '#eceae4', '#e0ac1a', '#1f7a4a'];
-    for (let i = 0; i < 8; i++) {
-      const g = new THREE.Group(), s = 3, fabric = new THREE.MeshStandardMaterial({ color: cols[i % cols.length], roughness: 0.8, side: THREE.DoubleSide });
-      const roof = new THREE.Mesh(new THREE.ConeGeometry(s * 0.74, 0.95, 4, 1, true), fabric); roof.rotation.set(Math.PI / 2, Math.PI / 4, 0); roof.position.z = 2.68;
-      const skirt = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.74, s * 0.74, 0.22, 4, 1, true), fabric); skirt.rotation.set(Math.PI / 2, Math.PI / 4, 0); skirt.position.z = 2.1;
-      roof.castShadow = skirt.castShadow = true; g.add(roof, skirt);
-      for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 2.2, 8), metal); leg.rotation.x = Math.PI / 2; leg.position.set((a * s) / 2, (b * s) / 2, 1.1); leg.castShadow = true; g.add(leg); }
-      const table = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.75, 0.04), new THREE.MeshStandardMaterial({ color: '#d8d4cb', roughness: 0.5 })); table.position.z = 0.75; table.castShadow = true; g.add(table);
-      for (const [a, b] of [[0.8, 0.3], [0.8, -0.3], [-0.8, 0.3], [-0.8, -0.3]]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.74, 6), metal); leg.rotation.x = Math.PI / 2; leg.position.set(a, b, 0.37); g.add(leg); }
-      const box = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.35), new THREE.MeshStandardMaterial({ color: ['#30333a', '#7a5a36', '#274a8a'][i % 3], roughness: 0.7 })); box.position.set(-0.3 + 0.6 * rng.uniform(), 0.9, 0.175); box.castShadow = true; g.add(box);
-      g.position.set(-8 + i * 9.2, 25 + 2.5 * rng.uniform(), 0); g.rotation.z = (rng.uniform() - 0.5) * 0.15; scene.add(g);
-    }
     // Hangar ao fundo.
     const corr = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d');
       for (let i = 0; i < 256; i++) { const v = 150 + 55 * Math.sin((i / 256) * Math.PI * 2 * 16); x.fillStyle = `rgb(${v},${v + 3},${v + 6})`; x.fillRect(i, 0, 1, 64); }

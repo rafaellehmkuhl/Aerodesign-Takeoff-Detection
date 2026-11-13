@@ -1,7 +1,0 @@
-# Postes com a altura da faixa: o poste do lado da câmera de linha fica na linha de visada e
-# esconde o trem de pouso exatamente no ponto de medição -> a câmera de linha superestima a folga.
-extends: rapido.yaml
-obstacle:
-  post_height_m: 0.70
-dynamics:
-  target_clearance_m: -0.02

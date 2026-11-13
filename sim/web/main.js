@@ -166,7 +166,7 @@ function buildStrip() {
 // Cada campo aponta para um caminho no cenário. `scale` converte a unidade guardada para a exibida.
 const RESOLUTIONS = [[1280, 720], [1920, 1080], [2560, 1440], [3840, 2160]];
 const camFields = (i) => [
-  { group: 'Posição e mira', note: 'x ao longo da pista (largada em 0, obstáculo em 50), y para a esquerda, z para cima.', fields: [
+  { group: 'Posição e mira', note: 'x ao longo da pista (largada em 0, obstáculo em 55), y para a esquerda, z para cima.', fields: [
     { kind: 'vec3', path: `cameras.${i}.position`, label: 'Posição da câmera', unit: 'm', step: 0.05 },
     { kind: 'vec3', path: `cameras.${i}.look_at`, label: 'Ponto para onde ela aponta', unit: 'm', step: 0.05 },
   ] },
@@ -196,8 +196,8 @@ const TABS = [
       { kind: 'range', path: 'environment.sun_azimuth_deg', label: 'Direção do sol', unit: '°', min: 0, max: 360, step: 5 },
     ] },
     { group: 'Obstáculo', fields: [
-      { kind: 'range', path: 'obstacle.height_m', label: 'Altura da faixa', unit: 'cm', scale: 100, min: 30, max: 150, step: 1 },
-      { kind: 'switch', path: 'obstacle.tape', label: 'Faixa física entre os postes' },
+      { kind: 'range', path: 'obstacle.height_m', label: 'Altura da fita', help: 'Regulamento 2026: 90 cm.', unit: 'cm', scale: 100, min: 30, max: 150, step: 1 },
+      { kind: 'switch', path: 'obstacle.tape', label: 'Fita zebrada entre as hastes' },
       { kind: 'switch', path: 'obstacle.backdrop', label: 'Painel de contraste atrás do obstáculo' },
     ] },
     { group: 'Aleatoriedade', fields: [

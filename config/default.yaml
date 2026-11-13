@@ -8,18 +8,23 @@
 seed: 1
 
 runway:
-  length_m: 50.0          # distância da largada até o obstáculo
-  width_m: 8.0
+  # Regulamento SAE BRASIL AeroDesign 2026 Rev01, R[7.8.0.1] (Regular) e R[8.11.0.1] (Advanced):
+  # obstáculo de 90 cm de altura e 10 m de largura a 55 m do início da corrida de decolagem.
+  length_m: 55.0          # distância da largada até o obstáculo
+  width_m: 14.0
   overrun_m: 70.0         # asfalto depois do obstáculo
 
 obstacle:
-  height_m: 0.70          # altura da "faixa" (real ou virtual)  -- CONFERIR NO REGULAMENTO VIGENTE
-  width_m: 6.0            # distância entre os postes
-  posts: true             # desenhar os postes
-  post_height_m: 0.30     # altura dos postes quando não há faixa física. Postes da altura da faixa TAPAM a
-                          # visada da câmera de linha no ponto de medição (ver scenarios/postes_altos.yaml)
-  tape: false             # desenhar a faixa física (o objetivo do sistema é aboli-la)
-  tape_bow_m_per_ms: 0.02 # quanto a faixa embarriga por m/s de vento (só visual)
+  height_m: 0.90          # altura da fita
+  width_m: 10.0           # distância entre as hastes
+  posts: true             # hastes: eletroduto com chapa de aço na base, com a altura da fita
+  post_diameter_m: 0.032  # eletroduto de 1"
+  post_base_m: 0.30       # lado da chapa da base
+  tape: true              # fita zebrada física, com a face listrada para cima
+  tape_width_m: 0.07
+  tape_sag_m: 0.03        # quanto a fita cai no meio do vão
+  tape_bow_m_per_ms: 0.02 # quanto a fita embarriga por m/s de vento
+  tape_colors: ["#d61f1f", "#f2f2ee"]
   backdrop: false         # painel de contraste do lado oposto à câmera de linha
   backdrop_color: "#2b6cff"
 
@@ -143,25 +148,26 @@ cameras:
   # Câmera de linha: alta velocidade, na altura da faixa, olhando ao longo dela.
   - name: linecam
     role: line
-    position: [50.0, -9.0, 0.70]
-    look_at: [50.0, 0.0, 0.70]
+    position: [55.0, -9.0, 0.90]
+    look_at: [55.0, 0.0, 0.90]
     resolution: [1280, 720]
     hfov_deg: 24
     fps: 240
     exposure_s: 0.00025
     record_window_s: [-0.45, 0.35]
-  # Três câmeras de rastreamento em mastros, fora da pista, olhando de cima para a zona do obstáculo.
+  # Três câmeras de rastreamento em mastros, todas do mesmo lado da pista que a câmera de linha
+  # (o outro lado fica livre), espalhadas ao longo da pista para dar base à triangulação.
   - name: track_a
-    position: [42.5, -9.0, 6.0]
-    look_at: [48.8, 0.0, 1.0]
+    position: [46.0, -9.0, 6.0]
+    look_at: [53.8, 0.0, 1.2]
     hfov_deg: 42
   - name: track_b
-    position: [42.5, 9.0, 6.0]
-    look_at: [48.8, 0.0, 1.0]
+    position: [53.0, -12.0, 8.0]
+    look_at: [54.5, 0.0, 1.2]
     hfov_deg: 42
   - name: track_c
-    position: [55.0, -9.0, 6.0]
-    look_at: [48.8, 0.0, 1.0]
+    position: [62.0, -9.0, 6.0]
+    look_at: [53.8, 0.0, 1.2]
     hfov_deg: 42
 
 # Câmera "de TV" que segue a aeronave (só para o vídeo final; sem erros).

@@ -28,31 +28,51 @@ function noiseTexture(size, base, variation, rng, { speckle = 0, repeat = 1, str
   return t;
 }
 
-// Postes, faixa física opcional e painel de contraste.
+// Obstáculo de decolagem: duas hastes de eletroduto com chapa de aço na base, fita zebrada entre elas
+// (face listrada para cima) e, opcionalmente, um painel de contraste.
+function zebraTexture(colors) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 32;
+  const x = c.getContext('2d');
+  x.fillStyle = colors[1]; x.fillRect(0, 0, 256, 32);
+  x.fillStyle = colors[0];
+  for (let k = -32; k < 256 + 32; k += 64) { x.beginPath(); x.moveTo(k, 32); x.lineTo(k + 32, 32); x.lineTo(k + 64, 0); x.lineTo(k + 32, 0); x.closePath(); x.fill(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+
 export function buildObstacle(cfg) {
   const env = cfg.environment, L = cfg.runway.length_m, Wd = cfg.runway.width_m;
-  const ob = cfg.obstacle, hw = ob.width_m / 2;
-  const h = ob.tape ? ob.height_m : (ob.post_height_m ?? ob.height_m);   // com faixa física os postes têm a altura dela
-  const orange = new THREE.MeshStandardMaterial({ color: '#f06a12', roughness: 0.6 });
-  const white = new THREE.MeshStandardMaterial({ color: '#f2f2f2', roughness: 0.6 });
+  const ob = cfg.obstacle, hw = ob.width_m / 2, h = ob.height_m;
   const obstacle = new THREE.Group();
-  if (ob.posts) for (const s of [-1, 1]) {
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.03), orange); base.position.set(L, s * hw, 0.025);
-    const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.09, h, 14), orange);
-    cone.rotation.x = Math.PI / 2; cone.position.set(L, s * hw, h / 2 + 0.03);
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.06, h * 0.22, 14), white);
-    band.rotation.x = Math.PI / 2; band.position.set(L, s * hw, h * 0.62);
-    for (const m of [base, cone, band]) { m.castShadow = true; m.receiveShadow = true; obstacle.add(m); }
+  if (ob.posts) {
+    const conduit = new THREE.MeshStandardMaterial({ color: '#b9bec4', metalness: 0.75, roughness: 0.4 });   // eletroduto galvanizado
+    const steel = new THREE.MeshStandardMaterial({ color: '#5d6166', metalness: 0.8, roughness: 0.55 });
+    const r = (ob.post_diameter_m ?? 0.032) / 2, b = ob.post_base_m ?? 0.3;
+    for (const s of [-1, 1]) {
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(b, b, 0.006), steel); plate.position.set(L, s * hw, 0.003);
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 20), conduit); pipe.rotation.x = Math.PI / 2; pipe.position.set(L, s * hw, h / 2 + 0.006);
+      const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.6, r * 1.6, 0.08, 20), steel); sleeve.rotation.x = Math.PI / 2; sleeve.position.set(L, s * hw, 0.046);   // luva soldada na chapa
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.15, r * 1.15, 0.02, 20), steel); cap.rotation.x = Math.PI / 2; cap.position.set(L, s * hw, h + 0.006);   // conector da fita
+      for (const m of [plate, pipe, sleeve, cap]) { m.castShadow = true; m.receiveShadow = true; obstacle.add(m); }
+    }
   }
   if (ob.tape) {
-    const bow = ob.tape_bow_m_per_ms * env.wind.speed_ms * -Math.cos(deg(env.wind.direction_deg)) * -1;
-    const pts = [];
-    for (let i = 0; i <= 24; i++) { const s = i / 24, y = -hw + 2 * hw * s; pts.push(new THREE.Vector3(L + bow * 4 * s * (1 - s), y, h - 0.03 * 4 * s * (1 - s))); }
-    const geo = new THREE.BufferGeometry(); const pos = [], idx = [];
-    pts.forEach((p, i) => { pos.push(p.x, p.y, p.z + 0.02, p.x, p.y, p.z - 0.02); if (i) { const a = 2 * i; idx.push(a - 2, a - 1, a, a - 1, a + 1, a); } });
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
-    const tape = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: '#ffe14a', emissive: '#554400', side: THREE.DoubleSide, roughness: 0.3 }));
-    tape.castShadow = true; obstacle.add(tape);
+    // Fita deitada (face para cima), com flecha no meio do vão e barriga horizontal com o vento.
+    const wind = env.wind, toward = Math.cos(deg(wind.direction_deg));   // componente do vento ao longo de x
+    const bow = (ob.tape_bow_m_per_ms ?? 0) * wind.speed_ms * toward, sag = ob.tape_sag_m ?? 0, tw = (ob.tape_width_m ?? 0.07) / 2;
+    const n = 64, pos = [], uv = [], idx = [];
+    for (let i = 0; i <= n; i++) {
+      const s = i / n, y = -hw + 2 * hw * s, k = 4 * s * (1 - s);
+      const x = L + bow * k, z = h - sag * k;
+      pos.push(x - tw, y, z, x + tw, y, z); uv.push(0, (s * ob.width_m) / 0.25, 1, (s * ob.width_m) / 0.25);
+      if (i) { const a = 2 * i; idx.push(a - 2, a, a - 1, a - 1, a, a + 1); }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const tex = zebraTexture(ob.tape_colors ?? ['#d61f1f', '#f2f2ee']); tex.rotation = Math.PI / 2; tex.center.set(0.5, 0.5);
+    const tape = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide, roughness: 0.45 }));
+    tape.castShadow = true; tape.receiveShadow = true; obstacle.add(tape);
   }
   if (ob.backdrop) {
     const line = (cfg.cameras ?? []).find((c) => c.role === 'line');
@@ -123,7 +143,9 @@ export function buildWorld(cfg) {
   for (let x = 2; x < L + cfg.runway.overrun_m - 2; x += 5) stripe(x + 1, 0, 2, 0.1);
   stripe(0, 0, 0.25, Wd - 0.6);                     // linha de largada
   stripe(L, 0, 0.12, Wd - 0.6, yellow);             // linha do obstáculo no asfalto
-  for (let x = 10; x < L; x += 10) { stripe(x, Wd / 2 - 0.6, 0.08, 0.6); stripe(x, -Wd / 2 + 0.6, 0.08, 0.6); }
+  // Marcas laterais a cada 10 m e, como no regulamento, marcas auxiliares de 40 m até o obstáculo a cada 5 m.
+  const marks = new Set(); for (let x = 10; x < L - 15; x += 10) marks.add(x); for (let x = L - 15; x < L - 0.1; x += 5) marks.add(x);
+  for (const x of marks) { stripe(x, Wd / 2 - 0.6, 0.12, 0.9); stripe(x, -Wd / 2 + 0.6, 0.12, 0.9); }
 
   const obstacle = buildObstacle(cfg);
   scene.add(obstacle);
@@ -148,18 +170,6 @@ export function buildWorld(cfg) {
       trunks.setMatrixAt(i, m4);
     }
     scene.add(crowns, trunks);
-    // Tendas das equipes ao lado da pista.
-    const tentCols = ['#f0f0f0', '#2f62c8', '#d83a3a', '#f0f0f0', '#e8b923'];
-    for (let i = 0; i < 7; i++) {
-      const g = new THREE.Group(), s = 3;
-      const roof = new THREE.Mesh(new THREE.ConeGeometry(s * 0.75, 1.1, 4), new THREE.MeshStandardMaterial({ color: tentCols[i % tentCols.length], roughness: 0.8 }));
-      roof.rotation.set(Math.PI / 2, Math.PI / 4, 0); roof.position.z = 2.75; roof.castShadow = true; g.add(roof);
-      for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.2, 6), new THREE.MeshStandardMaterial({ color: '#cccccc' }));
-        leg.rotation.x = Math.PI / 2; leg.position.set((a * s) / 2, (b * s) / 2, 1.1); g.add(leg);
-      }
-      g.position.set(-6 + i * 9.5, 24 + 3 * rng.uniform(), 0); scene.add(g);
-    }
     // Biruta.
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 4, 8), white); pole.rotation.x = Math.PI / 2; pole.position.set(20, -16, 2); scene.add(pole);
     const sock = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.3, 10, 1, true), new THREE.MeshStandardMaterial({ color: '#ff5a1f', side: THREE.DoubleSide }));

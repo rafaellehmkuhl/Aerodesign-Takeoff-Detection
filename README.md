@@ -85,8 +85,13 @@ em uso — se aparecer "render por software", o navegador não está usando a pl
 Tudo está em `config/default.yaml` (comentado). Um cenário sobrescreve só o que precisar e pode
 herdar de outro com `extends:`. Os principais grupos:
 
-- `runway`, `obstacle` — comprimento da pista, altura/largura do obstáculo, postes (e a altura deles),
-  faixa física (opcional, embarriga com o vento), painel de contraste atrás do obstáculo.
+- `runway`, `obstacle` — pista e obstáculo. Padrões do Regulamento SAE BRASIL AeroDesign 2026 Rev01
+  (R[7.8.0.1]/R[8.11.0.1], Regular e Advanced): fita de **90 cm** de altura e **10 m** de largura a **55 m**
+  do início da corrida, com a face zebrada para cima, e marcas auxiliares na pista de 40 m até o obstáculo
+  a cada 5 m. As hastes são eletrodutos sobre uma chapa de aço, como em campo. As quatro câmeras padrão
+  (linha e três de rastreamento) ficam do mesmo lado da pista; o outro lado fica livre. A fita física fica ligada por
+  padrão (`obstacle.tape`), cai `tape_sag_m` no meio do vão e embarriga com o vento; a validação continua
+  medindo contra o plano do obstáculo na altura nominal. Painel de contraste opcional.
 - `environment` — sol, vento médio/direção/rajada.
 - `aircraft` — geometria paramétrica (envergadura, corda, fuselagem, trem, cores…) **ou** um modelo
   `.glb` (`model: /models/meu_aviao.glb`, com `model_scale`/`model_rotation_deg`; coloque o arquivo em
@@ -105,7 +110,7 @@ herdar de outro com `extends:`. Os principais grupos:
 - `algorithms`, `output` — parâmetros dos algoritmos e do vídeo final.
 
 Cenários prontos em `scenarios/`: `padrao`, `rapido`, `limite_passa` (+2 cm), `limite_falha` (−2 cm),
-`vento_forte`, `linecam_desalinhada`, `postes_altos`, `painel_contraste`. Só `rapido` (com as folgas da
+`vento_forte`, `linecam_desalinhada`, `painel_contraste`. Só `rapido` (com as folgas da
 tabela abaixo) e `limite_falha` foram rodados de ponta a ponta até aqui.
 
 ## Cenário realista e aeronave
@@ -206,11 +211,10 @@ O que apareceu:
    exatamente o erro sorteado para ela nessa semente (1,4 cm na altura levantada + apontamento):
    a faixa "acreditada" fica 5,7 px fora da real. O resto do erro é paralaxe (cresce com a folga).
    Com 2 cm de margem, isso basta para inverter o veredito (linha de −2 cm).
-2. **Postes da altura da faixa tapam a medição da câmera de linha.** A câmera olha ao longo da faixa
-   e os postes estão nas pontas dela: com postes de 0,70 m o poste próximo escondeu o trem de pouso
-   no ponto de medição e a câmera de linha leu +6 cm para folgas reais de −10 e −2 cm. Por isso o
-   padrão agora são postes baixos (`obstacle.post_height_m: 0.30`); `scenarios/postes_altos.yaml`
-   reproduz o problema (esse cenário não foi rodado de novo depois dos ajustes nos algoritmos).
+2. **Hastes da altura da fita tapam a medição da câmera de linha.** A câmera olha ao longo da fita
+   e as hastes estão nas pontas dela: numa rodada antiga (pista de 50 m, fita a 0,70 m) a haste próxima
+   escondeu o trem de pouso no ponto de medição e a câmera de linha leu +6 cm para folgas reais de −10 e
+   −2 cm. Hoje as hastes têm a altura da fita, como em campo, então esse efeito está presente no padrão.
 3. **O modo `coluna` perde a roda nos casos-limite** (+105 mm): na altura da faixa o pneu escuro passa
    na frente do horizonte/árvores e a amostragem de uma única coluna não o pega. Com um painel de
    contraste atrás do obstáculo (`scenarios/painel_contraste.yaml`, só a câmera de linha testada) o modo
@@ -294,9 +298,10 @@ centenas de pixels), rápido, ao ar livre, sem profundidade, mas com **modelo 3D
 
 ## Premissas a conferir e limitações
 
-- **Regulamento**: o site da SAE Brasil não estava acessível deste ambiente. Pista de 50 m veio do
-  briefing; **altura do obstáculo (0,70 m), largura entre postes (6 m) e largura da pista (8 m) são
-  chutes configuráveis** — ajustar em `config/default.yaml`.
+- **Regulamento**: altura, largura e distância do obstáculo vêm do regulamento 2026 Rev01. A largura da
+  pista (14 m), a flecha da fita e as dimensões do eletroduto e da chapa são estimativas.
+- **Resultados acima**: foram obtidos antes da mudança para o regulamento 2026 (pista de 50 m, fita a
+  0,70 m, sem fita física) e precisam ser refeitos.
 - **Aeronave**: a geometria é a do modelo fornecido, mas massa, CLmáx, tração, posição do CG e as
   velocidades resultantes (estol ≈ 10–11 m/s, cruzando o obstáculo a ≈ 9–10 m/s de velocidade de solo com
   3 m/s de vento de proa) são estimativas, não dados da equipe. Trocar pelos números reais.
@@ -306,7 +311,7 @@ centenas de pixels), rápido, ao ar livre, sem profundidade, mas com **modelo 3D
   um processo com pontos de controle).
 - **Realismo visual**: céu, luz, asfalto e grama vêm de material escaneado e a aeronave é o modelo real,
   mas ainda é rasterização em tempo real, não path tracing: sem iluminação global, oclusão de ambiente
-  ou reflexos reais; árvores e tendas são procedurais; não há pessoas, veículos nem público no fundo.
+  ou reflexos reais; árvores, hangar e alambrado são procedurais; não há pessoas nem veículos (o público fica atrás das câmeras).
   A posição dos ArUcos sobre o filme da asa foi escolhida por mim, não pela equipe.
 - O algoritmo sem marcador é um baseline clássico; os métodos de ponta listados acima não foram
   integrados.
