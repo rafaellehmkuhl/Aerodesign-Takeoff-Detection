@@ -5,9 +5,6 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { makeRng, deg } from './util.js';
 import { buildObstacle } from './world.js';
 
-// Posição do sol dentro do HDRI kloofendal_48d_partly_cloudy_puresky (medida no arquivo).
-const HDRI_SUN = { u: 0.595, elevation_deg: 47.9 };
-
 const tl = new THREE.TextureLoader();
 function tex(url, { srgb = false, repeat = 1 } = {}) {
   const t = tl.load(url);
@@ -81,10 +78,24 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   const wind = { x: Math.cos(wdir), y: Math.sin(wdir), speed: env.wind.speed_ms };
 
   // --- Céu / iluminação baseada em imagem ---
-  const hdr = await new RGBELoader().setDataType(THREE.FloatType).loadAsync(assets + 'sky_4k.hdr');
-  // O HDRI já contém o sol (≈ 70 % da irradiância). Para ter sombras, o sol direto vem de uma luz direcional;
-  // por isso o disco solar é limitado aqui, senão a luz do sol entraria duas vezes (uma delas sem sombra).
-  { const d = hdr.image.data, lim = env.sky_clamp ?? 6; for (let i = 0; i < d.length; i++) if (d[i] > lim) d[i] = lim; hdr.needsUpdate = true; }
+  const hdr = await new RGBELoader().setDataType(THREE.FloatType).loadAsync(assets + (env.sky_hdri ?? 'sky_cloudy_4k.hdr'));
+  // O HDRI já contém o sol. Para ter sombras, o sol direto vem de uma luz direcional; por isso o disco solar é
+  // limitado aqui (senão a luz do sol entraria duas vezes, uma delas sem sombra), e a energia cortada vira a
+  // intensidade da luz direcional. A posição do sol é o pixel mais brilhante do arquivo.
+  const HDRI_SUN = { u: 0.5, elevation_deg: 45 };
+  let sunIrr = 0;
+  {
+    const d = hdr.image.data, W = hdr.image.width, H = hdr.image.height, lim = env.sky_clamp ?? 6, ch = d.length / (W * H);
+    let best = -1, bi = 0;
+    for (let i = 0; i < W * H; i++) { const l = d[i * ch] + d[i * ch + 1] + d[i * ch + 2]; if (l > best) { best = l; bi = i; } }
+    HDRI_SUN.u = (bi % W + 0.5) / W; HDRI_SUN.elevation_deg = 90 - ((Math.floor(bi / W) + 0.5) / H) * 180;
+    for (let i = 0; i < W * H; i++) {
+      const lat = Math.PI / 2 - ((Math.floor(i / W) + 0.5) / H) * Math.PI, dOmega = (2 * Math.PI / W) * (Math.PI / H) * Math.cos(lat);
+      let over = 0; for (let c = 0; c < 3; c++) { const k = i * ch + c; if (d[k] > lim) { over += (d[k] - lim) / 3; d[k] = lim; } }
+      sunIrr += over * dOmega;
+    }
+    hdr.needsUpdate = true;
+  }
   hdr.mapping = THREE.EquirectangularReflectionMapping;
   scene.background = hdr; scene.environment = hdr;
   // HDRI é Y-para-cima; o mundo é Z-para-cima. Gira para Z e depois em torno de Z para pôr o sol no azimute pedido.
@@ -96,13 +107,17 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   scene.backgroundRotation.copy(rot); scene.environmentRotation.copy(rot);
   scene.environmentIntensity = env.ibl_intensity ?? 1.0; scene.backgroundIntensity = env.sky_intensity ?? 1.0;
   const sunDir = new THREE.Vector3(Math.cos(el) * Math.cos(sunAz), Math.cos(el) * Math.sin(sunAz), Math.sin(el));
-  scene.fog = new THREE.FogExp2(0xffffff, env.haze ?? 0.00045); scene.fog.color.setRGB(0.30, 0.35, 0.46);
+  // Névoa clara (perspectiva aérea): prédios e morros a quilômetros ficam lavados e azul-acinzentados.
+  scene.fog = new THREE.FogExp2(0xffffff, env.haze ?? 0.00032); scene.fog.color.setRGB(...(env.haze_color ?? [0.62, 0.68, 0.76]));
 
-  const sun = new THREE.DirectionalLight(0xfff1de, env.sun_intensity ?? 4.6);
+  const sunI = env.sun_intensity === 'auto' || env.sun_intensity == null ? sunIrr * (env.sun_scale ?? 1) : env.sun_intensity;
+  console.log(`[céu] sol no HDRI: u=${HDRI_SUN.u.toFixed(3)}, elevação ${HDRI_SUN.elevation_deg.toFixed(1)}°, irradiância cortada ${sunIrr.toFixed(2)} → luz direcional ${sunI.toFixed(2)}`);
+  const sun = new THREE.DirectionalLight(0xfff1de, sunI);
   sun.castShadow = !cfg.render?.no_shadows;
   sun.shadow.mapSize.set(4096, 4096);
-  const sc = sun.shadow.camera, R = 30; sc.left = -R; sc.right = R; sc.top = R; sc.bottom = -R; sc.near = 5; sc.far = 220;
-  sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.02; sun.shadow.radius = 2.2;
+  // Meia-largura da área de sombra: 18 m em 4096 texels ≈ 9 mm, o bastante para as pernas do tripé.
+  const sc = sun.shadow.camera, R = env.shadow_extent_m ?? 18; sc.left = -R; sc.right = R; sc.top = R; sc.bottom = -R; sc.near = 5; sc.far = 220;
+  sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.02; sun.shadow.radius = env.shadow_softness ?? 4;
   // Região de sombra fixa em torno do obstáculo: sombras estáveis de um quadro para o outro.
   const focus = new THREE.Vector3(L - 6, 0, 0);
   sun.target.position.copy(focus); sun.position.copy(focus).addScaledVector(sunDir, 110);
@@ -113,7 +128,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   const grassMat = addMacro(new THREE.MeshStandardMaterial({
     map: tex(P + 'grass_diff.jpg', { srgb: true, repeat: 4000 / 2.6 }), normalMap: tex(P + 'grass_nor.jpg', { repeat: 4000 / 2.6 }),
     roughnessMap: tex(P + 'grass_rough.jpg', { repeat: 4000 / 2.6 }), roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3), envMapIntensity: 0.6,
-  }), tex(P + 'grass_macro_diff.jpg', { srgb: true }), { scale: 55, strength: 0.8, tint: [0.56, 0.9, 0.3], mono: true });
+  }), tex(P + 'grass_macro_diff.jpg', { srgb: true }), { scale: 55, strength: 0.45, tint: env.grass_tint ?? [0.4, 0.61, 0.4], mono: true });
   const grass = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000, 200, 200), grassMat);
   grass.position.z = -0.02; grass.receiveShadow = true; scene.add(grass);
 
@@ -124,7 +139,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   const asphaltMat = addMacro(new THREE.MeshStandardMaterial({
     map: tex(P + pv + '_diff.jpg', { srgb: true }), normalMap: tex(P + pv + '_nor.jpg'), roughnessMap: tex(P + pv + '_rough.jpg'),
     roughness: 1, normalScale: new THREE.Vector2(1.2, 1.2), envMapIntensity: 0.7, ...layer(-2, -6),
-  }), tex(P + 'asphalt_macro_diff.jpg', { srgb: true }), concrete ? { scale: 37, strength: 0.55, tint: [1.0, 1.0, 1.0], mono: true } : { scale: 31, strength: 0.85, tint: [0.78, 0.78, 0.8] });
+  }), tex(P + 'asphalt_macro_diff.jpg', { srgb: true }), concrete ? { scale: 37, strength: 0.3, tint: [1.0, 1.0, 1.0], mono: true } : { scale: 31, strength: 0.85, tint: [0.78, 0.78, 0.8] });
   if (concrete) {
     const slab = env.slab_m ?? [5, 4.5];
     const prev = asphaltMat.onBeforeCompile;
@@ -136,9 +151,11 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
         float edge = min(${(slab[0] / 2).toFixed(2)} - dj.x, ${(slab[1] / 2).toFixed(2)} - dj.y);
         diffuseColor.rgb *= mix(0.42, 1.0, smoothstep(0.006, 0.02, edge));          // junta selada
         diffuseColor.rgb *= mix(0.9, 1.0, smoothstep(0.02, 0.12, edge));            // borda da placa mais suja
-        diffuseColor.rgb *= 0.94 + 0.12 * fract(sin(dot(floor(sj), vec2(12.9898, 78.233))) * 43758.5453);   // cada placa com um tom`);
+        diffuseColor.rgb *= 0.94 + 0.12 * fract(sin(dot(floor(sj), vec2(12.9898, 78.233))) * 43758.5453);   // cada placa com um tom
+        diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.3333))), diffuseColor.rgb, 0.25) * vec3(0.97, 0.99, 1.04);   // cinza neutro, levemente frio`);
     };
   }
+  if (concrete) asphaltMat.color.setScalar(env.concrete_albedo ?? 1.87);   // concreto claro, quase branco, como o pátio real
   for (const k of ['map', 'normalMap', 'roughnessMap']) asphaltMat[k].repeat.set(total / 3, (Wd + 0.8) / 3);
   const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(total, Wd + 0.8, Math.ceil(total / 2), 4), asphaltMat);
   asphalt.position.set(total / 2 - 12, 0, 0); asphalt.receiveShadow = true; scene.add(asphalt);
@@ -158,8 +175,13 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   // Marcas laterais a cada 10 m e, como no regulamento, marcas auxiliares de 40 m até o obstáculo a cada 5 m.
   const marks = new Set(); for (let x = 10; x < L - 15; x += 10) marks.add(x); for (let x = L - 15; x < L - 0.1; x += 5) marks.add(x);
   for (const x of marks) { stripe(x, Wd / 2 - 0.6, 0.12, 0.9); stripe(x, -Wd / 2 + 0.6, 0.12, 0.9); }
+  // Linha amarela curva de pista de táxi, saindo da lateral da pista depois do obstáculo (como nas fotos).
+  {
+    const R0 = 9, g = new THREE.RingGeometry(R0 - 0.06, R0 + 0.06, 64, 1, -Math.PI / 2, Math.PI / 2);
+    const m = new THREE.Mesh(g, yellow); m.position.set(L + 3, Wd / 2 - 0.4 - R0, 0.003); m.receiveShadow = true; scene.add(m);
+  }
   // Marcas de borracha/óleo ao longo do eixo.
-  const stain = new THREE.MeshStandardMaterial({ color: '#0c0c0d', roughness: 0.55, transparent: true, opacity: 0.4, alphaMap: alphaNoise(128, rng, { base: 0.35, contrast: 1.6, cells: 10 }), ...layer(-3, -9) });
+  const stain = new THREE.MeshStandardMaterial({ color: '#0c0c0d', roughness: 0.55, transparent: true, opacity: 0.1, alphaMap: alphaNoise(128, rng, { base: 0.35, contrast: 1.6, cells: 10 }), ...layer(-3, -9) });
   for (let i = 0; i < 16; i++) {
     const lx = 3 + 9 * rng.uniform(), m = new THREE.Mesh(new THREE.PlaneGeometry(lx, 0.12 + 0.25 * rng.uniform()), stain);
     m.position.set(2 + (L + 30) * rng.uniform(), (rng.uniform() - 0.5) * 2.4, 0.002); m.rotation.z = (rng.uniform() - 0.5) * 0.05; scene.add(m);
@@ -199,10 +221,10 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color(), up = new THREE.Vector3(0, 0, 1), pCore = core / (core + tail * 0.4);
     for (let i = 0; i < n; i++) {
       const side = i % 2 ? 1 : -1, d = rng.uniform() < pCore ? core * rng.uniform() : core + tail * (1 - Math.sqrt(rng.uniform()));
-      const s = 0.75 + 0.7 * rng.uniform() ** 2;
+      const s = 0.45 + 0.35 * rng.uniform() ** 2;
       m4.compose(new THREE.Vector3(x0 + (x1 - x0) * rng.uniform(), side * (y0 + d), -0.02), q.setFromAxisAngle(up, rng.uniform() * 6.28), new THREE.Vector3(s, s, s * (0.8 + 0.5 * rng.uniform())));
       inst.setMatrixAt(i, m4);
-      inst.setColorAt(i, col.setHSL(0.2 + 0.07 * rng.uniform(), 0.5 + 0.25 * rng.uniform(), 0.2 + 0.12 * rng.uniform()));
+      inst.setColorAt(i, col.setHSL(0.22 + 0.04 * rng.uniform(), 0.33 + 0.1 * rng.uniform(), 0.26 + 0.08 * rng.uniform()));
     }
     inst.receiveShadow = true; inst.frustumCulled = false; scene.add(inst);
   }
@@ -238,7 +260,33 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     leafMat.onBeforeCompile = (sh, r) => { p0(sh, r); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aH;'); };
     const barkMat = new THREE.MeshStandardMaterial({ map: tex(P + 'bark_diff.jpg', { srgb: true }), roughness: 0.95, envMapIntensity: 0.4 });
     barkMat.map.repeat.set(1, 3);
-    const N = 220, variants = [makeCanopy(300), makeCanopy(240), makeCanopy(360)];
+    // Textura de mata vista de longe (copas que se fundem), usada nos cinturões de árvores e nos morros.
+    const forest = (() => {
+      const c = document.createElement('canvas'); c.width = 512; c.height = 128; const x = c.getContext('2d'), r2 = makeRng(cfg.seed + 77);
+      x.fillStyle = '#3e4a2e'; x.fillRect(0, 0, 512, 128);
+      for (let k = 0; k < 2600; k++) {   // copas: manchas de vários verdes, mais claras no topo de cada uma
+        const px = r2.uniform() * 512, py = r2.uniform() * 128, rr = 2 + 5 * r2.uniform(), g = 0.75 + 0.5 * r2.uniform();
+        x.fillStyle = `rgb(${Math.round(80 * g)},${Math.round(92 * g)},${Math.round(54 * g)})`; x.beginPath(); x.arc(px, py, rr, 0, 6.28); x.fill();
+      }
+      const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+      return t;
+    })();
+    // Cinturões contínuos de mata além do campo (como nas fotos): faixa de copas que se fundem, topo irregular.
+    for (const [yb, x0b, x1b, sd] of [[380, L / 2 - 1300, L / 2 + 1300, 11], [-300, L / 2 - 1300, L / 2 + 1300, 12]]) {
+      const segs = Math.round((x1b - x0b) / 3), g = new THREE.PlaneGeometry(x1b - x0b, 1, segs, 3); g.rotateX(Math.PI / 2);
+      const r4 = makeRng(cfg.seed + sd), nz = Array.from({ length: segs + 1 }, () => r4.uniform());
+      const gp = g.attributes.position, uvB = g.attributes.uv;
+      for (let i = 0; i < gp.count; i++) {
+        const c = i % (segs + 1), row = Math.floor(i / (segs + 1)), f = 1 - row / 3, xx = c / segs;
+        const top = 9 + 5 * Math.sin(xx * 40 + sd) + 3 * Math.sin(xx * 157 + 2 * sd) + 4 * (nz[c] + nz[(c + 1) % segs]) / 2;
+        gp.setZ(i, f * top - 0.5); gp.setY(i, (r4.uniform() - 0.5) * 6);
+        uvB.setXY(i, xx * (x1b - x0b) / 30, f * top / 30);
+      }
+      g.computeVertexNormals();
+      const belt = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: forest, roughness: 1, side: THREE.DoubleSide, envMapIntensity: 0.7 }));
+      belt.position.set((x0b + x1b) / 2, yb, 0); scene.add(belt);
+    }
+    const N = 200, variants = [makeCanopy(300), makeCanopy(240), makeCanopy(360)];
     const trunkG = new THREE.CylinderGeometry(0.5, 0.8, 1, 8, 1, true); trunkG.rotateX(Math.PI / 2);
     const canopies = variants.map((g) => new THREE.InstancedMesh(g, leafMat, N * 3));
     const trunks = new THREE.InstancedMesh(trunkG, barkMat, N);
@@ -246,10 +294,10 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     for (let i = 0; i < N; i++) {
       // Faixas de árvores além do campo aberto: na frente da cidade (lado oposto às câmeras) e atrás do público.
       // aglomerados (capões) espalhados, não uma fileira contínua
-      const far = i % 3 !== 0, cl = Math.floor(rng.uniform() * 14), cx = L / 2 + (cl / 13 - 0.5) * 1500 + 40 * Math.sin(cl * 7.1);
-      const x = cx + rng.gauss() * 28, y = far ? 360 + 60 * Math.sin(cl * 3.3) + rng.gauss() * 18 : -(280 + 50 * Math.sin(cl * 2.1) + rng.gauss() * 18);
-      const h = 7 + 9 * rng.uniform(), rad = 2.4 + 2.6 * rng.uniform();
-      const hue = 0.24 + 0.08 * rng.uniform(), sat = 0.45 + 0.25 * rng.uniform(), lit = 0.36 + 0.18 * rng.uniform(), lobes = 3 + Math.floor(3 * rng.uniform());
+      const far = i % 3 !== 0, cl = Math.floor(rng.uniform() * 16), cx = L / 2 + (cl / 15 - 0.5) * 1700 + 40 * Math.sin(cl * 7.1);   // maciços de dezenas de copas que se sobrepõem
+      const x = cx + rng.gauss() * 42, y = far ? 355 + rng.gauss() * 10 : -(275 + rng.gauss() * 10);   // na frente do cinturão
+      const h = 6 + 12 * rng.uniform(), rad = 3.0 + 3.0 * rng.uniform();
+      const hue = 0.21 + 0.06 * rng.uniform(), sat = 0.28 + 0.17 * rng.uniform(), lit = 0.30 + 0.14 * rng.uniform(), lobes = 3 + Math.floor(3 * rng.uniform());
       for (let k = 0; k < lobes; k++) {
         // copa = lóbulo central + lóbulos menores deslocados (silhueta irregular)
         const v = (i + k) % variants.length, a = rng.uniform() * 6.28, off = k ? rad * (0.55 + 0.5 * rng.uniform()) : 0, sc = k ? rad * (0.5 + 0.35 * rng.uniform()) : rad;
@@ -264,33 +312,55 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
     canopies.forEach((c, v) => { c.count = counts[v]; c.frustumCulled = false; scene.add(c); });
     trunks.frustumCulled = false; scene.add(trunks);
 
-    // Serra ao longe (some na névoa) e cidade no horizonte, do lado oposto às câmeras.
-    const hillG = new THREE.CylinderGeometry(4200, 4200, 1, 128, 1, true); hillG.rotateX(Math.PI / 2);
-    const hp = hillG.attributes.position, hn = Array.from({ length: 129 }, (_, i) => 60 + 130 * Math.max(0, Math.sin(i * 0.09 + 0.4)) * (0.6 + 0.4 * Math.sin(i * 0.53)) + 25 * rng.uniform());
-    for (let i = 0; i < hp.count; i++) if (hp.getZ(i) > 0) hp.setZ(i, hn[i % 129]); else hp.setZ(i, -2);
-    const hills = new THREE.Mesh(hillG, new THREE.MeshStandardMaterial({ color: '#56677a', roughness: 1, side: THREE.BackSide, envMapIntensity: 0.6 }));
-    hills.position.set(L / 2, 0, 0); scene.add(hills);
+    for (const [rad, hMin, hMax, seed, rep] of [[2400, 40, 170, 1, 60], [4800, 80, 360, 2, 90], [9000, 150, 600, 3, 120]]) {
+      const segs = 720, g = new THREE.CylinderGeometry(rad, rad, 1, segs, 6, true); g.rotateX(Math.PI / 2);
+      const r3 = makeRng(cfg.seed + 900 + seed), noise = Array.from({ length: segs + 1 }, () => r3.uniform());
+      const prof = (i) => {   // perfil irregular: soma de senoides + ruído suavizado
+        const a = (i / segs) * Math.PI * 2, n = (noise[i % segs] + noise[(i + 1) % segs] + noise[(i + segs - 1) % segs]) / 3;
+        const v = 0.5 + 0.3 * Math.sin(a * 3 + seed) + 0.2 * Math.sin(a * 7.3 + 2 * seed) + 0.15 * Math.sin(a * 17.1 + seed * 5) + 0.25 * (n - 0.5);
+        return hMin + (hMax - hMin) * Math.max(0, Math.min(1, v));
+      };
+      const gp = g.attributes.position, uvA = g.attributes.uv;
+      for (let i = 0; i < gp.count; i++) {
+        const col = i % (segs + 1), row = Math.floor(i / (segs + 1)), f = 1 - row / 6;   // f: 1 no topo, 0 na base
+        gp.setZ(i, f > 0 ? prof(col) * Math.pow(f, 0.7) : -2);
+        uvA.setXY(i, (col / segs) * rep, f * 1.0);
+      }
+      g.computeVertexNormals();
+      const m = new THREE.MeshStandardMaterial({ map: forest, roughness: 1, side: THREE.BackSide, envMapIntensity: 0.8 });
+      const hill = new THREE.Mesh(g, m); hill.position.set(L / 2, 0, 0); scene.add(hill);
+    }
 
     const facade = (seed) => {
-      // Fachada de prédio residencial: faixas de janelas e lajes, em tons de concreto/cerâmica.
-      const c = document.createElement('canvas'); c.width = 128; c.height = 256; const x = c.getContext('2d'), r2 = makeRng(seed);
-      const base = ['#d9d6cf', '#e6e3dc', '#c8c4bd', '#eeebe4', '#b9b5ae'][seed % 5];
-      x.fillStyle = base; x.fillRect(0, 0, 128, 256);
-      for (let fy = 4; fy < 256; fy += 12) for (let fx = 6; fx < 128; fx += 16) {
-        x.fillStyle = r2.uniform() < 0.8 ? `rgb(${50 + 40 * r2.uniform()},${60 + 40 * r2.uniform()},${75 + 40 * r2.uniform()})` : '#8a8f96';
-        x.fillRect(fx, fy, 10, 7);
+      // Fachada de prédio residencial: um andar a cada 3 m, janelas, faixas de sacada e tons creme/bege/cinza.
+      const c = document.createElement('canvas'); c.width = 256; c.height = 256; const x = c.getContext('2d'), r2 = makeRng(seed);
+      const base = ['#c9c2b5', '#e0dad0', '#9aa0a6', '#d6cfc2', '#b8b2a6', '#e8e4dc'][seed % 6];
+      x.fillStyle = base; x.fillRect(0, 0, 256, 256);
+      const fl = 16;   // pixels por andar (3 m)
+      for (let fy = 0; fy < 256; fy += fl) {
+        x.fillStyle = 'rgba(255,255,255,0.18)'; x.fillRect(0, fy + fl - 3, 256, 3);              // laje / sacada
+        for (let fx = 4; fx < 256; fx += 21) {
+          const d = 78 + 30 * r2.uniform();
+          x.fillStyle = `rgb(${d - 8},${d},${d + 10})`; x.fillRect(fx, fy + 3, 14, 10);          // vidro (reflete o céu)
+        }
       }
-      const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
       return t;
     };
-    const facades = Array.from({ length: 5 }, (_, k) => new THREE.MeshStandardMaterial({ map: facade(cfg.seed + k), roughness: 0.85, envMapIntensity: 0.5 }));
-    for (let i = 0; i < 70; i++) {
-      const w = 16 + 14 * rng.uniform(), dpt = 14 + 10 * rng.uniform(), hgt = 35 + 85 * rng.uniform() ** 1.3;
-      const g = new THREE.BoxGeometry(w, dpt, hgt);
-      const uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * (w / 12), uv.getY(k) * (hgt / 18));
-      const b = new THREE.Mesh(g, facades[i % facades.length]);
-      b.position.set(L / 2 + (rng.uniform() - 0.5) * 2400 * (0.4 + 0.6 * rng.uniform()), 750 + 700 * rng.uniform(), hgt / 2); b.rotation.z = (rng.uniform() - 0.5) * 0.3;
-      scene.add(b);
+    const facades = Array.from({ length: 6 }, (_, k) => new THREE.MeshStandardMaterial({ map: facade(cfg.seed + k), roughness: 0.8, envMapIntensity: 0.6 }));
+    const roofMat = new THREE.MeshStandardMaterial({ color: '#8c8a85', roughness: 0.9 });
+    // A cidade fica a 2–4 km, em bairros de prédios agrupados (não espalhados por igual).
+    for (let blk = 0; blk < 14; blk++) {
+      const bx = L / 2 + (blk / 13 - 0.5) * 5600 + (rng.uniform() - 0.5) * 300, by = 1100 + 650 * rng.uniform(), nb = 14 + Math.floor(16 * rng.uniform());
+      for (let i = 0; i < nb; i++) {
+        const w = 18 + 14 * rng.uniform(), dpt = 16 + 10 * rng.uniform(), hgt = 40 + 80 * rng.uniform() ** 1.3;
+        const g = new THREE.BoxGeometry(w, dpt, hgt);
+        const uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * (w / 40), uv.getY(k) * (hgt / 48));
+        const b = new THREE.Mesh(g, [facades[(blk + i) % 6], facades[(blk + i) % 6], facades[(blk + i) % 6], facades[(blk + i) % 6], roofMat, roofMat]);
+        const px = bx + (rng.uniform() - 0.5) * 420, py = by + (rng.uniform() - 0.5) * 300;
+        b.position.set(px, py, hgt / 2); b.rotation.z = (rng.uniform() - 0.5) * 0.4; scene.add(b);
+        const tank = new THREE.Mesh(new THREE.BoxGeometry(w * 0.35, dpt * 0.35, 4), roofMat); tank.position.set(px, py, hgt + 2); tank.rotation.z = b.rotation.z; scene.add(tank);
+      }
     }
 
     const metal = new THREE.MeshStandardMaterial({ color: '#c9ccd1', metalness: 0.9, roughness: 0.35 });

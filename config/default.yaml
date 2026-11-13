@@ -21,10 +21,11 @@ obstacle:
   post_diameter_m: 0.025
   post_base_m: [0.42, 0.26, 0.05]
   post_color: "#141516"
-  tape: true              # fita zebrada física, com a face listrada para cima
+  tape: true              # fita zebrada física
   tape_width_m: 0.07
   tape_sag_m: 0.03        # quanto a fita cai no meio do vão
-  tape_twist_deg: 50      # torção da fita ao longo do vão (0 = face listrada sempre para cima)
+  tape_tilt_deg: 65       # inclinação média da face (0 = deitada, listras para cima; nas fotos de 2026 a fita fica quase em pé)
+  tape_twist_deg: 50      # torção da fita ao longo do vão, em torno dessa inclinação
   tape_bow_m_per_ms: 0.02 # quanto a fita embarriga por m/s de vento
   tape_colors: ["#d61f1f", "#f2f2ee"]
   backdrop: false         # painel de contraste do lado oposto à câmera de linha
@@ -35,12 +36,18 @@ environment:
   #          basic -> cenário procedural leve (usado automaticamente se os assets não existirem)
   quality: real
   pavement: concreto       # concreto (como em São José dos Campos) ou asfalto
-  haze: 0.00045            # densidade da névoa (afasta prédios e serra)
+  sky_hdri: sky_cloudy_4k.hdr   # céu (sim/assets/polyhaven): sky_cloudy_4k.hdr (nublado, como nas fotos) ou sky_4k.hdr (poucas nuvens)
+  haze: 0.00025            # densidade da névoa (perspectiva aérea: lava prédios e morros a quilômetros)
   sun_azimuth_deg: 215     # de onde vem o sol (0 = +x, 90 = +y)
   sun_elevation_deg: 48    # só no modo basic; no modo real a elevação é a do HDRI (48 graus)
   turbidity: 4             # só no modo basic
-  sun_intensity: 4.6       # modo real: irradiância do sol direto, na mesma escala do HDRI (medida no arquivo)
-  ibl_intensity: 1.0
+  sun_intensity: auto      # modo real: irradiância do sol direto, medida no HDRI (energia do disco solar); ou um número
+  sun_scale: 2.4           # fração dessa irradiância usada (nuvens finas na frente do sol deixam a luz mais difusa)
+  ibl_intensity: 0.85      # luz do céu
+  haze_color: [0.72, 0.76, 0.82]   # cor da névoa (linear)
+  sky_intensity: 1.12      # brilho do céu visto ao fundo (não muda a iluminação)
+  exposure: 0.70           # exposição da câmera (tone mapping ACES)
+  shadow_softness: 1       # raio da penumbra das sombras (texels do mapa de sombra)
   grass_3d: true
   grass_wind: false        # balanço da grama com o vento (desligado: não afeta as medições)
   grass_density_per_m2: 55  # touceiras por m² junto à pista (cada uma com 10 lâminas); reduza em máquinas sem GPU

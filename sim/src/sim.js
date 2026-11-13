@@ -120,7 +120,7 @@ export async function createSim(cfg, { canvas, cameraRenderer, baseUrl = locatio
   };
 
   const cr = cameraRenderer ?? (canvas ? new CameraRenderer(canvas, { msaa: cfg.render?.msaa ?? 4 }) : null);
-  if (cr) cr.renderer.toneMappingExposure = cfg.render?.exposure ?? (real ? 0.42 : 0.6);
+  if (cr) cr.renderer.toneMappingExposure = cfg.render?.exposure ?? cfg.environment.exposure ?? (real ? 0.42 : 0.6);
   const byName = Object.fromEntries([...cams, chase, free].map((c) => [c.name, c]));
   const render = (name, t, frameIndex = 0) => {
     const c = byName[name];

@@ -17,6 +17,7 @@ UA = {"User-Agent": "takeoff-sim-asset-fetch"}
 # (asset, mapa na API, resolução, formato, nome local)
 ASSETS = [
     ("kloofendal_48d_partly_cloudy_puresky", "hdri", "4k", "hdr", "sky_4k.hdr"),
+    ("kloppenheim_03_puresky", "hdri", "4k", "hdr", "sky_cloudy_4k.hdr"),   # padrão: céu com muitas nuvens, como nas fotos da competição
     ("asphalt_02", "Diffuse", "2k", "jpg", "asphalt_diff.jpg"),
     ("asphalt_02", "nor_gl", "2k", "jpg", "asphalt_nor.jpg"),
     ("asphalt_02", "Rough", "2k", "jpg", "asphalt_rough.jpg"),

@@ -57,16 +57,16 @@ export function buildObstacle(cfg) {
     }
   }
   if (ob.tape) {
-    // Fita zebrada: face listrada para cima (regulamento), mas torcendo ao longo do vão como em campo;
+    // Fita zebrada: face inclinada tape_tilt_deg (0 = deitada, listras para cima) e torcendo ao longo do vão como em campo;
     // flecha no meio e barriga horizontal com o vento.
     const wind = env.wind, toward = Math.cos(deg(wind.direction_deg));
     const bow = (ob.tape_bow_m_per_ms ?? 0) * wind.speed_ms * toward, sag = ob.tape_sag_m ?? 0, tw = (ob.tape_width_m ?? 0.07) / 2;
-    const twist = deg(ob.tape_twist_deg ?? 0), ph = (cfg.seed ?? 1) * 1.7;
+    const twist = deg(ob.tape_twist_deg ?? 0), tilt = deg(ob.tape_tilt_deg ?? 0), ph = (cfg.seed ?? 1) * 1.7;
     const n = 160, pos = [], uv = [], idx = [];
     for (let i = 0; i <= n; i++) {
       const s = i / n, y = -hw + 2 * hw * s, k = 4 * s * (1 - s);
       const x = L + bow * k, z = h - sag * k;
-      const a = twist * (0.6 * Math.sin(s * 9.4 + ph) + 0.4 * Math.sin(s * 23.1 + 2 * ph)) * Math.min(1, 8 * Math.min(s, 1 - s));   // presa reta nas pontas
+      const a = tilt + twist * (0.6 * Math.sin(s * 9.4 + ph) + 0.4 * Math.sin(s * 23.1 + 2 * ph)) * Math.min(1, 8 * Math.min(s, 1 - s));   // inclinação média + torção (presa nas pontas)
       const dx = tw * Math.cos(a), dz = tw * Math.sin(a);
       pos.push(x - dx, y, z - dz, x + dx, y, z + dz); uv.push(0, (s * ob.width_m) / 0.25, 1, (s * ob.width_m) / 0.25);
       if (i) { const b = 2 * i; idx.push(b - 2, b, b - 1, b - 1, b, b + 1); }
@@ -219,10 +219,15 @@ export function buildMast(position, { umbrella = false } = {}) {
     }
     // Guarda-sol colorido preso ao tripé, como na câmera de teste em campo.
     if (umbrella) {
-      const H = z + 0.45, R = 0.5, cols = ['#d6262a', '#f0a51c', '#2bb04a', '#2a63c9', '#7a3bb5', '#e5d21e'];
+      // 8 gomos de tecido (como o guarda-sol de praia das fotos), em cone raso, com a borda recortada entre as varetas.
+      const H = z + 0.45, R = 0.52, cols = ['#d52b1e', '#f07f1d', '#f2c200', '#2e9a3e', '#1f4fa8', '#7a3bb5', '#d52b1e', '#f2f2ee'];
       bar(V(0.04, 0, 0.3), V(0.04, 0, H), 0.008, dark);
-      for (let k = 0; k < 6; k++) {
-        const seg = new THREE.Mesh(new THREE.ConeGeometry(R, 0.18, 10, 1, true, (k * Math.PI) / 3, Math.PI / 3), new THREE.MeshStandardMaterial({ color: cols[k], roughness: 0.8, side: THREE.DoubleSide }));
+      for (let k = 0; k < 8; k++) {
+        const geo = new THREE.ConeGeometry(R, 0.2, 12, 1, true, (k * Math.PI) / 4, Math.PI / 4);
+        const p = geo.attributes.position;   // borda recortada: a ponta de cada vareta desce, o meio do gomo sobe
+        for (let i = 0; i < p.count; i++) if (p.getY(i) < 0) { const a = Math.atan2(p.getX(i), p.getZ(i)) - (k * Math.PI) / 4; const f = Math.sin(((a % (Math.PI / 4)) + Math.PI / 4) % (Math.PI / 4) * 4); p.setY(i, p.getY(i) + 0.035 * f); }
+        geo.computeVertexNormals();
+        const seg = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: cols[k], roughness: 0.85, side: THREE.DoubleSide, emissive: cols[k], emissiveIntensity: 0.06 }));
         seg.rotation.x = Math.PI / 2; seg.position.set(x + 0.04, y, H); seg.castShadow = true; g.add(seg);
       }
     }
