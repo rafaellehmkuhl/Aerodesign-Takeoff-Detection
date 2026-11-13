@@ -138,7 +138,7 @@ def mat_leaves(seed):
         tc = nt.nodes.new("ShaderNodeTexCoord")
         vo = nt.nodes.new("ShaderNodeTexVoronoi"); vo.inputs["Scale"].default_value = 2.2
         nt.links.new(tc.outputs["Object"], vo.inputs["Vector"])
-        base = [srgb("#344127"), srgb("#3f4d2b"), srgb("#4a5a31"), srgb("#55622f")][seed % 4]
+        base = [srgb("#4a5a3a"), srgb("#56683c"), srgb("#5f6e45"), srgb("#6a7340")][seed % 4]
         col, fac = noise_ramp(nt, 0.6, [(0.3, tuple(c * 0.7 for c in base)), (0.55, base), (0.8, tuple(min(1, c * 1.35) for c in base))])
         inv = nt.nodes.new("ShaderNodeMath"); inv.operation = "SUBTRACT"; inv.inputs[0].default_value = 1.0
         nt.links.new(vo.outputs["Distance"], inv.inputs[1])
@@ -292,9 +292,9 @@ def trees():
     for yb, n in ((380, 2200), (-300, 1800)):      # cinturões contínuos além do campo, com falhas
         for i in range(n):
             x = L / 2 + rng.uniform(-1400, 1400)
-            if noise.noise(Vector((x / 180, yb / 180, 0.5))) < -0.45:
+            if noise.noise(Vector((x / 140, yb / 140, 0.5))) < -0.2:
                 continue
-            tree(x, yb + rng.gauss(0, 14), rng.uniform(7, 19))
+            tree(x, yb + rng.gauss(0, 14), 4 + 13 * rng.random() ** 1.3)
     for c in range(30):                               # capões no campo e mata entre as casas
         cx, cy = L / 2 + rng.uniform(-1800, 1800), rng.choice([rng.uniform(430, 1300), -rng.uniform(340, 1200)])
         for i in range(rng.randint(8, 40)):

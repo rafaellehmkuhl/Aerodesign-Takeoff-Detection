@@ -138,7 +138,7 @@ export async function buildWorldReal(cfg, assets = '/assets/polyhaven/') {
   const grassMat = addMacro(new THREE.MeshStandardMaterial({
     map: tex(P + 'grass_diff.jpg', { srgb: true, repeat: 4000 / 2.6 }), normalMap: tex(P + 'grass_nor.jpg', { repeat: 4000 / 2.6 }),
     roughnessMap: tex(P + 'grass_rough.jpg', { repeat: 4000 / 2.6 }), roughness: 1, normalScale: new THREE.Vector2(1.3, 1.3), envMapIntensity: 0.6,
-  }), tex(P + 'grass_macro_diff.jpg', { srgb: true }), { scale: 55, strength: 0.45, tint: env.grass_tint ?? [0.4, 0.61, 0.4], mono: true });
+  }), tex(P + 'grass_macro_diff.jpg', { srgb: true }), { scale: 55, strength: 0.45, tint: env.grass_tint ?? [0.42, 0.68, 0.36], mono: true });
   const groundR = backdrop ? BD.radius - 100 : 2000;
   if (backdrop) for (const k of ['map', 'normalMap', 'roughnessMap']) grassMat[k].repeat.set((2 * groundR) / 2.6, (2 * groundR) / 2.6);
   const grass = new THREE.Mesh(backdrop ? new THREE.CircleGeometry(groundR, 256) : new THREE.PlaneGeometry(4000, 4000, 200, 200), grassMat);
